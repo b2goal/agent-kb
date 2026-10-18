@@ -1,6 +1,7 @@
 """Project identity: the normalized git remote, so one project matches across machines."""
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from functools import lru_cache
@@ -24,7 +25,8 @@ def normalize_remote(url: str) -> str:
 
 @lru_cache(maxsize=256)
 def project_id(cwd: str) -> str:
-    path = Path(cwd or ".").resolve()
+    # abspath, not resolve(): on Windows resolve() can map AppData into an MSIX package's virtual folder.
+    path = Path(os.path.abspath(cwd or "."))
     try:
         top = subprocess.run(["git", "-C", str(path), "rev-parse", "--show-toplevel"],
                              capture_output=True, text=True, timeout=3)

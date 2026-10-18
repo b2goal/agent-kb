@@ -160,7 +160,8 @@ def parse(path: Path) -> Parsed:
         for row in iter_json(f):
             t = row.get("type")
             p.session_id = p.session_id or row.get("sessionId") or row.get("session_id")
-            p.cwd = p.cwd or row.get("cwd")
+            if f == path and row.get("cwd"):
+                p.cwd = row["cwd"]          # last cwd wins: a session can move to another folder
             p.version = p.version or row.get("version") or row.get("claude_code_version")
             agent = row.get("parent_tool_use_id") or default_agent
             if default_agent == "main" and row.get("isSidechain"):
