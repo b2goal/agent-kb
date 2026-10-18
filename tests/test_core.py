@@ -3,6 +3,7 @@
 Run: python -m unittest discover -s tests -t .
 Each test uses its own AGENT_KB_HOME and CLAUDE_CONFIG_DIR in a temp folder.
 """
+import gc
 import io
 import json
 import os
@@ -30,6 +31,8 @@ class Env(unittest.TestCase):
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
+        # Windows cannot delete SQLite files that are still open; drop the connections first.
+        gc.collect()
         self.tmp.cleanup()
 
     def repo(self, remote="git@github.com:Me/Shop.git") -> Path:

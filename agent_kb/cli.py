@@ -377,7 +377,15 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _utf8_stdio() -> None:
+    # Windows consoles default to a legacy code page; hook payloads and output are UTF-8.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure") and (stream.encoding or "").lower().replace("-", "") != "utf8":
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: Optional[List[str]] = None) -> None:
+    _utf8_stdio()
     args = build_parser().parse_args(argv)
     sys.exit(args.fn(args) or 0)
 
