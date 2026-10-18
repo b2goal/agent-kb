@@ -61,3 +61,7 @@ Project được định danh bằng git remote (`github.com/cty/app`), nên cù
 ```bash
 python -m unittest discover -s tests -t .
 ```
+
+## Start here
+
+New session? Read `CONTEXT.md` first (goals, findings, design, next steps).
