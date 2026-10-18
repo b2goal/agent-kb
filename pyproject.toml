@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-kb"
+version = "0.1.0"
+description = "Harness-independent knowledge base and telemetry for coding agents (Claude Code first)."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+# Placeholders: plug-in indexes live behind agent_kb.indexes and are added later.
+vector = []
+graph = []
+rerank = []
+
+[project.scripts]
+kb = "agent_kb.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agent_kb*"]
