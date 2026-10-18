@@ -300,7 +300,7 @@ class BrowserTest(Env):
         self._session(r)
         claude_code.ingest_all()
         res = browser.learn("github.com/me/shop")
-        self.assertEqual((res["pages"], res["edges"]), (2, 1))
+        self.assertEqual((res["pages"], res["edges"], res["pitfalls"], res["flows"]), (2, 1, 0, 0))
         s = LocalStore()
         edge = s.find(project="github.com/me/shop", kind="edge")[0]
         self.assertEqual((edge.extra["from"], edge.extra["to"], edge.extra["action"]),
@@ -310,3 +310,36 @@ class BrowserTest(Env):
         self.assertEqual(route["steps"][0]["action"], "SSO button")
         self.assertEqual(browser.learn("github.com/me/shop"), res)          # idempotent
         self.assertIn("-->|SSO button|", browser.mermaid("github.com/me/shop"))
+
+
+class BrowserFlowTest(BrowserTest):
+    def test_flows_and_pitfalls_need_repetition(self):
+        from agent_kb import browser
+        from agent_kb.adapters import claude_code
+        r = self.repo()
+        base = "http://localhost:3000"
+        nav, comp = "mcp__claude-in-chrome__navigate", "mcp__claude-in-chrome__computer"
+        for n in range(3):
+            sid = f"sess-f{n}"
+            rows, k = [], 0
+
+            def step(name, inp, text, err=False):
+                nonlocal k
+                k += 1
+                rows.append({"type": "assistant", "sessionId": sid, "cwd": str(r), "timestamp": f"2026-10-18T03:0{n}:{k:02d}Z",
+                             "message": {"id": f"{sid}m{k}", "model": "m", "usage": {"input_tokens": 1, "output_tokens": 1},
+                                         "content": [{"type": "tool_use", "id": f"{sid}t{k}", "name": name, "input": inp}]}})
+                rows.append({"type": "user", "sessionId": sid, "cwd": str(r), "message": {"content": [
+                    {"type": "tool_result", "tool_use_id": f"{sid}t{k}", "content": text, "is_error": err}]}})
+            step(nav, {"url": base + "/login"}, "at " + base + "/login")
+            step(comp, {"action": "left_click", "ref": "SSO"}, "ok")
+            step(comp, {"action": "screenshot"}, "at " + base + "/home")
+            step(comp, {"action": "left_click", "ref": "Orders"}, "ok")
+            step(comp, {"action": "screenshot"}, "at " + base + "/orders")
+            step(comp, {"action": "left_click", "ref": "Export"}, "not found", True)
+            f = self.root / "claude" / "projects" / "p" / f"{sid}.jsonl"
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("\n".join(json.dumps(x) for x in rows) + "\n", encoding="utf-8")
+        claude_code.ingest_all()
+        res = browser.learn("github.com/me/shop")
+        self.assertEqual((res["pages"], res["edges"], res["flows"], res["pitfalls"]), (3, 2, 1, 1))

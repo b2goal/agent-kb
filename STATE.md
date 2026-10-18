@@ -1,6 +1,6 @@
 # STATE — agent-kb build progress
 
-Updated: 2026-10-18 (session 1). Design doc: "Thiết kế chi tiết: agent-kb" (Claude Docs).
+Updated: 2026-10-18 (session 1, end). 17 unit tests passing. Design doc: "Thiết kế chi tiết: agent-kb" (Claude Docs).
 
 ## Done (v0.1.0, 14 unit tests passing)
 
@@ -22,7 +22,9 @@ Updated: 2026-10-18 (session 1). Design doc: "Thiết kế chi tiết: agent-kb"
 - Skill v2 `skills/session-tuner/SKILL.md` using `kb`
 - Phase 3 v0 browser knowledge (`browser.py`): URL patterns, pages + edges learned from browser events at
   ingest (observed rank, stale after repeated failures), Dijkstra route + direct-URL fallback, Mermaid map;
-  `kb browser learn|map|page|path`; CLAUDE.md block points to it when pages exist
+  `kb browser learn|map|page|path|flows`; CLAUDE.md block points to it when pages exist
+- Phase 3 follow-ups done: flows (transition chains repeated in >= 3 sessions), pitfalls (same action failing
+  >= 2 times on a page)
 - Packaging: `pyproject.toml`, `pip install -e .` verified, entry point `kb`
 
 ## Verified
@@ -42,9 +44,11 @@ Updated: 2026-10-18 (session 1). Design doc: "Thiết kế chi tiết: agent-kb"
 ## Next (in order)
 
 1. Install on the user's machine, run one week, check `kb doctor` + `kb stats` match Claude Code's own numbers.
-2. Phase 3 follow-ups: flows (edge chains seen >= 3 times), pitfalls from repeated failed actions on a page,
-   state in page keys (modal / role / login) if SPAs need it.
-3. Adapter Codex (verify ~/.codex log format first) + `kb export agents-md`.
+2. Browser on real data: check URL patterns and observe/act classification against the user's actual
+   browser tools; add page state (modal / role / login) to page keys only if SPAs need it.
+3. Adapter Codex — BLOCKED on a real sample: public write-ups disagree (tool calls under response_item vs
+   event_msg; newer rollouts may be .jsonl.zst). Need one file from ~/.codex/sessions on the user's machine,
+   then write adapters/codex.py + `kb export agents-md`.
 4. Backlog: cloud sync behind Store, dashboard/chat on `kb serve`, Confluence/Jira connectors,
    vector/graph/rerank indexes, safety filters.
 

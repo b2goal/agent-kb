@@ -54,7 +54,10 @@ def learn(project: str, tele: Optional[Telemetry] = None, store: Optional[LocalS
 
     pages: Dict[str, Dict[str, object]] = {}
     edges: Dict[Tuple[str, str, str], Dict[str, object]] = {}
+    failures: Dict[Tuple[str, str], Dict[str, object]] = {}          # (page, action) -> count, sessions
+    walks: List[List[Tuple[str, str, str]]] = []                     # per session: edges in order
     for evs in by_session.values():
+        walk: List[Tuple[str, str, str]] = []
         evs.sort(key=lambda r: (r["ts"] or "", r["id"]))
         current: Optional[str] = None
         pending: Optional[Tuple[str, str, bool]] = None     # (from_page, action, ok) waiting for the next page
@@ -70,19 +73,26 @@ def learn(project: str, tele: Optional[Telemetry] = None, store: Optional[LocalS
                     e = edges.setdefault(key, {"ok": 0, "fail": 0, "last": None})
                     e["ok" if pending[2] else "fail"] += 1
                     e["last"] = r["ts"]
+                    if pending[2]:
+                        walk.append(key)
                     pending = None
                 current = pat
             if current:
                 pg = pages[current]
                 pg["observe" if kind == "observe" else "act"] += 1
                 pg["fail"] += 0 if ok else 1
+                if kind == "act" and not ok:
+                    f = failures.setdefault((current, label[:80]), {"n": 0, "sessions": set()})
+                    f["n"] += 1
+                    f["sessions"].add(r["session_id"])
                 if kind == "act":
                     action = "navigate" if "navigate" in (r["tool"] or "").lower() else label
                     if action == "navigate" and pat and pat != current:
                         pass                                     # navigate events carry the new url themselves
                     pending = (current, action[:80], ok)
+        walks.append(walk)
 
-    out = {"pages": 0, "edges": 0, "stale": 0}
+    out = {"pages": 0, "edges": 0, "stale": 0, "flows": 0, "pitfalls": 0}
     for pat, p in pages.items():
         it = Item(kind="page", project=project, subject_key=pat, title=pat, rank=rank,
                   source={"name": "observed", "via": "kb browser learn"},
@@ -102,6 +112,38 @@ def learn(project: str, tele: Optional[Telemetry] = None, store: Optional[LocalS
         store.put(it, actor="kb browser learn")
         out["edges"] += 1
         out["stale"] += status == "stale"
+
+    # pitfalls: the same action failing on the same page again and again
+    for (page, action), f in failures.items():
+        if f["n"] >= 2:
+            it = Item(kind="pitfall", project=project, subject_key=f"{page} :: {action}", title=f"{action} fails on {page}",
+                      rank=rank, source={"name": "observed", "via": "kb browser learn"},
+                      body=f"On {page}, action '{action}' failed {f['n']} time(s) in {len(f['sessions'])} session(s). "
+                           f"Check for a modal, a loading state or a changed label before retrying.",
+                      extra={"page": page, "action": action, "fails": f["n"], "sessions": len(f["sessions"])},
+                      id=_sid("pitf", project, page, action))
+            store.put(it, actor="kb browser learn")
+            out["pitfalls"] += 1
+
+    # flows: chains of 2+ successful transitions repeated in >= 3 sessions
+    seen: Dict[Tuple, set] = defaultdict(set)
+    for i, walk in enumerate(walks):
+        for n in range(2, min(6, len(walk)) + 1):
+            for j in range(len(walk) - n + 1):
+                chain = tuple(walk[j:j + n])
+                if all(chain[k][1] == chain[k + 1][0] for k in range(n - 1)):
+                    seen[chain].add(i)
+    for chain, sess in seen.items():
+        if len(sess) >= 3:
+            steps = [{"on": a, "action": act, "to": b} for a, b, act in chain]
+            it = Item(kind="flow", project=project, subject_key=f"{chain[0][0]} => {chain[-1][1]}",
+                      title=f"{chain[0][0]} => {chain[-1][1]}", rank=rank,
+                      source={"name": "observed", "via": "kb browser learn"},
+                      body="\n".join(f"{k + 1}. On {st['on']}: {st['action']} -> {st['to']}" for k, st in enumerate(steps)),
+                      extra={"steps": steps, "sessions": len(sess)},
+                      id=_sid("flow", project, *[f"{a}|{b}|{c}" for a, b, c in chain]))
+            store.put(it, actor="kb browser learn")
+            out["flows"] += 1
     return out
 
 

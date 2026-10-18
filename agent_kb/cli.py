@@ -264,6 +264,11 @@ def cmd_browser(args) -> int:
     elif args.action == "page":
         for p in browser.find_pages(proj, " ".join(args.query))[:5]:
             print(p.to_text())
+    elif args.action == "flows":
+        from .store import LocalStore
+        for kind in ("flow", "pitfall"):
+            for it in LocalStore().find(project=proj, kind=kind, status="active"):
+                print(f"[{kind}] {it.title}\n{it.body.strip()}\n")
     elif args.action == "path":
         print(json.dumps(browser.path(proj, " ".join(args.query), args.from_url), ensure_ascii=False, indent=2))
     return 0
@@ -360,9 +365,9 @@ def build_parser() -> argparse.ArgumentParser:
     proj_opts(p)
     p.add_argument("--write", action="store_true", help="write the managed block into CLAUDE.md")
     p.set_defaults(fn=cmd_export)
-    p = sub.add_parser("browser", help="page graph: learn | map | page <q> | path <q> [--from URL]")
+    p = sub.add_parser("browser", help="page graph: learn | map | page <q> | path <q> [--from URL] | flows")
     proj_opts(p)
-    p.add_argument("action", choices=["learn", "map", "page", "path"])
+    p.add_argument("action", choices=["learn", "map", "page", "path", "flows"])
     p.add_argument("query", nargs="*")
     p.add_argument("--from", dest="from_url", default=None)
     p.set_defaults(fn=cmd_browser)
