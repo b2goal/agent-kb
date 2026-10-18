@@ -167,7 +167,8 @@ def kb_command() -> str:
     exe = shutil.which("kb")
     if exe:
         return "kb"
-    return f'"{sys.executable}" -m agent_kb'      # double quotes work in sh and cmd.exe
+    exe = Path(sys.executable).as_posix()          # forward slashes: safe in Git Bash, cmd and PowerShell
+    return f'"{exe}" -m agent_kb'
 
 
 def settings_file(scope: str, project_dir: Optional[str] = None) -> Path:
