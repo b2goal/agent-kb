@@ -185,6 +185,9 @@ def export_claude_md(store: LocalStore, project: str) -> str:
     lines = [MARK_START, "# Project notes (agent-kb)"]
     lines += [f"- {i.body.strip()}" for i in items if i.body.strip()]
     lines.append("- Project knowledge: run `kb search \"<topic>\"` for conventions, flows and pages.")
+    if store.find_meta(project=project, kind="page", status="active"):
+        lines.append("- Before browser work: `kb browser path \"<target page>\" --from <current url>` gives a known "
+                     "route; `kb browser page \"<page>\"` shows what is known about a page. Explore only when unknown.")
     lines.append(MARK_END)
     return "\n".join(lines) + "\n"
 

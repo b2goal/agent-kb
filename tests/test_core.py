@@ -264,3 +264,49 @@ class CliTest(Env):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BrowserTest(Env):
+    def _session(self, r: Path) -> None:
+        sid = "sess-b"
+        base = "http://localhost:3000"
+
+        def a(mid, name, inp):
+            return {"type": "assistant", "sessionId": sid, "cwd": str(r), "timestamp": f"2026-10-18T02:00:{mid:02d}Z",
+                    "message": {"id": f"m{mid}", "model": "claude-sonnet", "usage": {"input_tokens": 10, "output_tokens": 5},
+                                "content": [{"type": "tool_use", "id": f"t{mid}", "name": name, "input": inp}]}}
+
+        def u(mid, text, err=False):
+            return {"type": "user", "sessionId": sid, "cwd": str(r),
+                    "message": {"content": [{"type": "tool_result", "tool_use_id": f"t{mid}", "content": text, "is_error": err}]}}
+
+        nav, comp, read = "mcp__claude-in-chrome__navigate", "mcp__claude-in-chrome__computer", "mcp__claude-in-chrome__read_page"
+        rows = [a(1, nav, {"url": base + "/login"}), u(1, "Navigated to " + base + "/login"),
+                a(2, read, {}), u(2, "page " + base + "/login form"),
+                a(3, comp, {"action": "left_click", "ref": "SSO button"}), u(3, "clicked"),
+                a(4, read, {}), u(4, "now at " + base + "/orders/123"),
+                a(5, comp, {"action": "left_click", "ref": "Export"}), u(5, "Error: element not found", True)]
+        f = self.root / "claude" / "projects" / "p" / "sess-b.jsonl"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("\n".join(json.dumps(x) for x in rows) + "\n", encoding="utf-8")
+
+    def test_learn_pages_edges_and_path(self):
+        from agent_kb import browser
+        from agent_kb.adapters import claude_code
+        from agent_kb.store import LocalStore
+        self.assertEqual(browser.url_pattern("https://a.b:8080/orders/123/items/9f8e7d6c5b?x=1"),
+                         "a.b:8080/orders/:id/items/:id")
+        r = self.repo()
+        self._session(r)
+        claude_code.ingest_all()
+        res = browser.learn("github.com/me/shop")
+        self.assertEqual((res["pages"], res["edges"]), (2, 1))
+        s = LocalStore()
+        edge = s.find(project="github.com/me/shop", kind="edge")[0]
+        self.assertEqual((edge.extra["from"], edge.extra["to"], edge.extra["action"]),
+                         ("localhost:3000/login", "localhost:3000/orders/:id", "SSO button"))
+        route = browser.path("github.com/me/shop", "orders", from_url="http://localhost:3000/login")
+        self.assertEqual(route["via"], "graph")
+        self.assertEqual(route["steps"][0]["action"], "SSO button")
+        self.assertEqual(browser.learn("github.com/me/shop"), res)          # idempotent
+        self.assertIn("-->|SSO button|", browser.mermaid("github.com/me/shop"))

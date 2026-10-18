@@ -20,6 +20,9 @@ Updated: 2026-10-18 (session 1). Design doc: "Thiết kế chi tiết: agent-kb"
 - CLI `kb` (setup, doctor, hook, statusline, ingest, stats, tune, outbox, search, get, add, confirm, retire,
   index, export, serve) and local HTTP API (`cli.py`, `server.py`)
 - Skill v2 `skills/session-tuner/SKILL.md` using `kb`
+- Phase 3 v0 browser knowledge (`browser.py`): URL patterns, pages + edges learned from browser events at
+  ingest (observed rank, stale after repeated failures), Dijkstra route + direct-URL fallback, Mermaid map;
+  `kb browser learn|map|page|path`; CLAUDE.md block points to it when pages exist
 - Packaging: `pyproject.toml`, `pip install -e .` verified, entry point `kb`
 
 ## Verified
@@ -39,8 +42,8 @@ Updated: 2026-10-18 (session 1). Design doc: "Thiết kế chi tiết: agent-kb"
 ## Next (in order)
 
 1. Install on the user's machine, run one week, check `kb doctor` + `kb stats` match Claude Code's own numbers.
-2. Phase 3 — browser knowledge (only if `kb stats` shows browser output share / exploration high):
-   page/edge/flow/pitfall items from browser events, `kb path`, `kb page`, `kb flow`.
+2. Phase 3 follow-ups: flows (edge chains seen >= 3 times), pitfalls from repeated failed actions on a page,
+   state in page keys (modal / role / login) if SPAs need it.
 3. Adapter Codex (verify ~/.codex log format first) + `kb export agents-md`.
 4. Backlog: cloud sync behind Store, dashboard/chat on `kb serve`, Confluence/Jira connectors,
    vector/graph/rerank indexes, safety filters.
