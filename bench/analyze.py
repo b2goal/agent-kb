@@ -35,7 +35,9 @@ def metrics(run_dir: Path) -> dict:
         violations += [e for e in events if e["category"] == "edit"]
     row.update(api_calls_main=s["api_calls"] - s["api_calls_sub"], tool_calls=s["tool_calls"],
                ctx_tokens=s["ctx_tokens"], out_tokens=s["out_tokens"], errors=s["errors"], denied=s["denied"],
-               browser_calls=len(browser), explore=len(observe) + len(failed_acts), violations=len(violations))
+               browser_calls=len(browser), explore=len(observe) + len(failed_acts), violations=len(violations),
+               kb_calls=sum(1 for e in events if e["category"] == "shell" and
+                            any(p.strip().startswith("kb") for p in str(e.get("cmd_prefix") or "").split(" | "))))
     return row
 
 
@@ -46,7 +48,7 @@ def median(rows, key):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--other", default="c", choices=["b", "c"])
+    ap.add_argument("--other", default="c", choices=["b", "c", "d"])
     args = ap.parse_args()
     rows = [metrics(d) for d in sorted((BENCH / "runs").glob("[BC][0-9]-*"))
             if (d / "result.json").exists() and not d.name.endswith("-0")]      # rep 0 = dry runs

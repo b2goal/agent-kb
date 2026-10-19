@@ -228,6 +228,15 @@ def cmd_pack(args) -> int:
     return 0
 
 
+def cmd_context(args) -> int:
+    """For agents: what past sessions of this project tell about a task (files, tests, errors, app pages)."""
+    from . import pack
+    from .project import project_id
+    proj = args.project_id or project_id(args.dir)
+    print(pack.build(" ".join(args.task), proj) or "No related past sessions in this project. Explore as usual.")
+    return 0
+
+
 def cmd_search(args) -> int:
     from .indexes import Query
     from .query import search
@@ -427,6 +436,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("query", nargs="*")
     p.add_argument("--from", dest="from_url", default=None)
     p.set_defaults(fn=cmd_browser)
+    p = sub.add_parser("context", help="for agents: related past work for a task (files, tests, errors, pages)")
+    p.add_argument("task", nargs="+")
+    p.add_argument("--dir", default=".")
+    p.add_argument("--project-id", default=None)
+    p.set_defaults(fn=cmd_context)
     p = sub.add_parser("pack", help="context pack for a request, learned from past sessions (prototype)")
     p.add_argument("prompt", nargs="*")
     p.add_argument("--dir", default=".")

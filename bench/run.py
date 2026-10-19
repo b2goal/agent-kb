@@ -33,7 +33,8 @@ DEFAULT_MODEL = "claude-sonnet-5-5"
 TIMEOUT_S = 25 * 60
 ALLOW = ["Read", "Edit", "Write", "Glob", "Grep", "Bash(python:*)", "Bash(python -m unittest:*)", "Bash(git status:*)",
          "Bash(git diff:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(grep:*)", "Bash(tail:*)", "Bash(head:*)",
-         "PowerShell(python:*)", "PowerShell(Get-Content:*)", "PowerShell(Select-Object:*)", "mcp__playwright"]
+         "PowerShell(python:*)", "PowerShell(Get-Content:*)", "PowerShell(Select-Object:*)", "mcp__playwright",
+         "Bash(kb:*)", "PowerShell(kb:*)"]
 
 
 class QuotaHit(RuntimeError):
@@ -73,7 +74,7 @@ def prepare(task: str, arm: str, run_id: str) -> Path:
         rmtree(work / "shopdemo" / "web")
         with open(work / "README.md", "a", encoding="utf-8") as fh:
             fh.write("\nThe web UI is maintained and deployed separately; this repo holds the domain code and seed data.\n")
-    shutil.copy(BENCH / "arms" / "CLAUDE.md", work / "CLAUDE.md")
+    shutil.copy(BENCH / "arms" / ("CLAUDE_pull.md" if arm == "d" else "CLAUDE.md"), work / "CLAUDE.md")
     settings = {}                                   # permissions go on the command line: untrusted dirs ignore them here
     log = (RUNS / run_id / "inject.log").as_posix()
     if arm == "c":
@@ -112,7 +113,7 @@ def mcp_config(out: Path) -> Path:
     return out
 
 
-def run_claude(work: Path, prompt: str, model: str, run_dir: Path, browser: bool) -> dict:
+def run_claude(work: Path, prompt: str, model: str, run_dir: Path, browser: bool, env: dict = None) -> dict:
     sid = str(uuid.uuid4())
     cmd = [claude_exe(), "-p", prompt, "--model", model, "--output-format", "stream-json", "--verbose",
            "--setting-sources", "project", "--permission-mode", "acceptEdits", "--session-id", sid,
@@ -125,7 +126,7 @@ def run_claude(work: Path, prompt: str, model: str, run_dir: Path, browser: bool
     with open(run_dir / "stream.jsonl", "w", encoding="utf-8") as out:
         try:
             proc = subprocess.run(cmd, cwd=work, stdout=out, stderr=subprocess.PIPE, text=True, encoding="utf-8",
-                                  timeout=TIMEOUT_S)
+                                  timeout=TIMEOUT_S, env=env)
             rc, err = proc.returncode, proc.stderr[-2000:]
         except subprocess.TimeoutExpired:
             rc, err = -1, "timeout"
@@ -182,7 +183,12 @@ def run_one(task: str, arm: str, rep: int, model: str, grade_it: bool = True) ->
             server = subprocess.Popen([sys.executable, "-m", "shopdemo.web.server", "--port", "8800"], cwd=app,
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             wait_port(8800)
-        res = run_claude(work, TASKS[task]["prompt"], model, run_dir, browser)
+        env = None
+        if arm == "d":                                  # pull: the agent queries its own copy of the frozen bench kb
+            kb = run_dir / "kbhome"
+            shutil.copytree(KB_FROZEN, kb)
+            env = dict(os.environ, AGENT_KB_HOME=str(kb), PYTHONIOENCODING="utf-8")
+        res = run_claude(work, TASKS[task]["prompt"], model, run_dir, browser, env)
     finally:
         if server:
             server.terminate()
@@ -246,9 +252,9 @@ def probe(model: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--task")
-    ap.add_argument("--arm", choices=["a", "b", "c"])
+    ap.add_argument("--arm", choices=["a", "b", "c", "d"])
     ap.add_argument("--rep", type=int, default=1)
-    ap.add_argument("--plan", choices=["phase1", "phase2"])
+    ap.add_argument("--plan", choices=["phase1", "phase2", "pull"])
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--probe", action="store_true")
@@ -262,7 +268,7 @@ def main() -> None:
     if args.warmup:
         return warmup(args.model)
     if args.plan:
-        arms = ["a", "c"] if args.plan == "phase1" else ["a", "b"]
+        arms = {"phase1": ["a", "c"], "phase2": ["a", "b"], "pull": ["a", "d"]}[args.plan]
         jobs = [(t, a, r) for r in range(1, args.reps + 1) for t in TASKS if t not in WARMUP for a in arms]
         random.Random(args.seed).shuffle(jobs)
         for t, a, r in jobs:
