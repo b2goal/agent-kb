@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import random
+import re
 import shutil
 import socket
 import stat
@@ -33,6 +34,10 @@ TIMEOUT_S = 25 * 60
 ALLOW = ["Read", "Edit", "Write", "Glob", "Grep", "Bash(python:*)", "Bash(python -m unittest:*)", "Bash(git status:*)",
          "Bash(git diff:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(grep:*)", "Bash(tail:*)", "Bash(head:*)",
          "PowerShell(python:*)", "PowerShell(Get-Content:*)", "PowerShell(Select-Object:*)", "mcp__playwright"]
+
+
+class QuotaHit(RuntimeError):
+    """The account's usage limit stopped the session; the run did not happen."""
 
 
 def rmtree(path: Path) -> None:
@@ -153,9 +158,9 @@ def grade(task: str, work: Path, final_text: str, run_dir: Path) -> dict:
     shutil.copytree(BENCH / "hidden" / task, hidden, dirs_exist_ok=True)
     (hidden / "__init__.py").touch()
     h = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests_hidden", "-t", "."], cwd=work,
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
     p = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."], cwd=work,
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
     return {"success": h.returncode == 0 and p.returncode == 0, "hidden_ok": h.returncode == 0,
             "public_ok": p.returncode == 0, "detail": (h.stderr + p.stderr)[-1500:]}
 
@@ -182,6 +187,8 @@ def run_one(task: str, arm: str, rep: int, model: str, grade_it: bool = True) ->
         if server:
             server.terminate()
             server.wait(10)
+    if res.get("is_error") and re.search(r"hit your .*limit|usage limit|rate limit", res["final_text"], re.I):
+        raise QuotaHit(res["final_text"].strip())   # not a result: leave no result.json so the run is redone
     res.update(task=task, arm=arm, rep=rep, model=model,
                grade=grade(task, app if browser else work, res["final_text"], run_dir) if grade_it else {"success": None})
     (run_dir / "result.json").write_text(json.dumps(res, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -261,7 +268,11 @@ def main() -> None:
         for t, a, r in jobs:
             if (RUNS / f"{t}-{a}-{r}" / "result.json").exists():
                 continue
-            res = run_one(t, a, r, args.model)
+            try:
+                res = run_one(t, a, r, args.model)
+            except QuotaHit as exc:
+                print(f"{t}-{a}-{r}: stopped, usage limit reached ({exc}); re-run the same command after the reset")
+                return
             print(f"{t}-{a}-{r}: success={res['grade']['success']} turns={res['num_turns']} "
                   f"cost={res['cost_usd']} {res['seconds']}s", flush=True)
         return
