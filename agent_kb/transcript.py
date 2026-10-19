@@ -89,6 +89,7 @@ class Parsed:
         self.first_ts: Optional[str] = None
         self.last_ts: Optional[str] = None
         self.denied_ids = set()
+        self.prompt: Optional[str] = None             # the first thing the person asked in this session
 
     def call(self, mid: str, agent: str, model: Optional[str], ts: Optional[str]) -> dict:
         c = self.calls.get(mid)
@@ -169,7 +170,13 @@ def parse(path: Path) -> Parsed:
             if t == "assistant":
                 p.assistant(row.get("message") or {}, agent, row.get("timestamp"))
             elif t == "user":
-                p.user(row, row.get("message") or {})
+                msg = row.get("message") or {}
+                if f == path and p.prompt is None and not row.get("isMeta"):
+                    content = msg.get("content")
+                    if isinstance(content, str) or (isinstance(content, list) and not any(
+                            isinstance(b, dict) and b.get("type") == "tool_result" for b in content)):
+                        p.prompt = _text(content).strip()[:2000] or None
+                p.user(row, msg)
             elif t == "stream_event":
                 e = row.get("event") or {}
                 if e.get("type") == "message_start":
@@ -245,8 +252,8 @@ def tool_events(p: Parsed) -> List[Dict[str, object]]:
             pre = shellparse.prefixes(cmd)
             row["cmd_prefix"] = " | ".join(pre)[:200] or None
             row["compound"] = int(shellparse.is_compound(cmd))
-        if cat == "read":
-            row["file"] = str(inp.get("file_path") or "")[:300] or None
+        if cat in ("read", "edit"):
+            row["file"] = str(inp.get("file_path") or inp.get("notebook_path") or "")[:300] or None
         if cat == "browser":
             url = inp.get("url") or (URL_RE.search(res).group(0) if URL_RE.search(res or "") else None)
             row["url"] = (url or "")[:300] or None

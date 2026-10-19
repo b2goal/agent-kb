@@ -211,6 +211,23 @@ def cmd_outbox(args) -> int:
     return 0
 
 
+def cmd_pack(args) -> int:
+    """Context pack for a request: printed, or as UserPromptSubmit hook output (--hook, never fails)."""
+    from . import pack
+    if args.hook:
+        try:
+            out = pack.hook_output(_read_stdin_json())
+            if out:
+                print(out)
+        except Exception:
+            pass
+        return 0
+    from .project import project_id
+    proj = args.project_id or project_id(args.dir)
+    print(pack.build(" ".join(args.prompt), proj) or "(no related past sessions)")
+    return 0
+
+
 def cmd_search(args) -> int:
     from .indexes import Query
     from .query import search
@@ -410,6 +427,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("query", nargs="*")
     p.add_argument("--from", dest="from_url", default=None)
     p.set_defaults(fn=cmd_browser)
+    p = sub.add_parser("pack", help="context pack for a request, learned from past sessions (prototype)")
+    p.add_argument("prompt", nargs="*")
+    p.add_argument("--dir", default=".")
+    p.add_argument("--project-id", default=None)
+    p.add_argument("--hook", action="store_true", help="read a UserPromptSubmit payload on stdin, print hook JSON")
+    p.set_defaults(fn=cmd_pack)
     p = sub.add_parser("serve", help="local HTTP API on 127.0.0.1 (for a future dashboard)")
     p.add_argument("--port", type=int, default=8765)
     p.set_defaults(fn=cmd_serve)

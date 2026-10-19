@@ -24,6 +24,10 @@ from pathlib import Path
 BENCH = Path(__file__).resolve().parent
 WORK, RUNS = BENCH / "work", BENCH / "runs"
 TASKS = json.loads((BENCH / "tasks" / "tasks.json").read_text(encoding="utf-8"))
+WARMUP = json.loads((BENCH / "tasks" / "warmup.json").read_text(encoding="utf-8"))
+TASKS.update({k: dict(v, setup=None) for k, v in WARMUP.items()})
+KB_LIVE, KB_FROZEN = BENCH / "kbhome", BENCH / "kbfrozen"      # bench knowledge base: learning copy, frozen copy
+REMOTE = "https://example.test/shopdemo.git"                    # same project id for every work copy
 DEFAULT_MODEL = "claude-sonnet-5-5"
 TIMEOUT_S = 25 * 60
 ALLOW = ["Read", "Edit", "Write", "Glob", "Grep", "Bash(python:*)", "Bash(python -m unittest:*)", "Bash(git status:*)",
@@ -66,15 +70,19 @@ def prepare(task: str, arm: str, run_id: str) -> Path:
             fh.write("\nThe web UI is maintained and deployed separately; this repo holds the domain code and seed data.\n")
     shutil.copy(BENCH / "arms" / "CLAUDE.md", work / "CLAUDE.md")
     settings = {}                                   # permissions go on the command line: untrusted dirs ignore them here
+    log = (RUNS / run_id / "inject.log").as_posix()
+    if arm == "c":
+        pack = BENCH / "packs" / f"{task}.md"
+        cmd = f'"{Path(sys.executable).as_posix()}" "{(BENCH / "inject.py").as_posix()}" "{pack.as_posix()}" "{log}"'
+    if arm == "b":
+        cmd = f'"{Path(sys.executable).as_posix()}" "{(BENCH / "pack_hook.py").as_posix()}" "{KB_FROZEN.as_posix()}" "{log}"'
     if arm in ("b", "c"):
-        pack = BENCH / "packs" / f"{task}.md" if arm == "c" else BENCH / "packs_auto" / f"{task}.md"
-        cmd = f'"{Path(sys.executable).as_posix()}" "{(BENCH / "inject.py").as_posix()}" "{pack.as_posix()}" ' \
-              f'"{(RUNS / run_id / "inject.log").as_posix()}"'
         settings["hooks"] = {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": cmd, "timeout": 10}]}]}
     (work / ".claude").mkdir()
     (work / ".claude" / "settings.json").write_text(json.dumps(settings, indent=2), encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=work, check=True)
     subprocess.run(["git", "config", "core.autocrlf", "false"], cwd=work, check=True)
+    subprocess.run(["git", "remote", "add", "origin", REMOTE], cwd=work, check=True)
     subprocess.run(["git", "add", "-A"], cwd=work, check=True)
     subprocess.run(["git", "-c", "user.name=bench", "-c", "user.email=bench@example.test", "commit", "-qm", "base"],
                    cwd=work, check=True)
@@ -152,7 +160,7 @@ def grade(task: str, work: Path, final_text: str, run_dir: Path) -> dict:
             "public_ok": p.returncode == 0, "detail": (h.stderr + p.stderr)[-1500:]}
 
 
-def run_one(task: str, arm: str, rep: int, model: str) -> dict:
+def run_one(task: str, arm: str, rep: int, model: str, grade_it: bool = True) -> dict:
     run_id = f"{task}-{arm}-{rep}"
     run_dir = RUNS / run_id
     rmtree(run_dir)
@@ -174,9 +182,31 @@ def run_one(task: str, arm: str, rep: int, model: str) -> dict:
         if server:
             server.terminate()
             server.wait(10)
-    res.update(task=task, arm=arm, rep=rep, model=model, grade=grade(task, app if browser else work, res["final_text"], run_dir))
+    res.update(task=task, arm=arm, rep=rep, model=model,
+               grade=grade(task, app if browser else work, res["final_text"], run_dir) if grade_it else {"success": None})
     (run_dir / "result.json").write_text(json.dumps(res, indent=2, ensure_ascii=False), encoding="utf-8")
     return res
+
+
+def ingest_into_bench_kb(transcript: Path) -> None:
+    """Learn from a warm-up session: ingest its transcript into the bench knowledge base (not the user's)."""
+    env = dict(os.environ, AGENT_KB_HOME=str(KB_LIVE))
+    code = ("import sys; from pathlib import Path; from agent_kb.adapters.claude_code import ingest_file; "
+            "r = ingest_file(Path(sys.argv[1]), force=True); print('ingested' if r else 'skipped')")
+    out = subprocess.run([sys.executable, "-c", code, str(transcript)], env=env, capture_output=True, text=True)
+    print(f"  {transcript.parent.name}: {out.stdout.strip() or out.stderr.strip()[-200:]}")
+
+
+def warmup(model: str) -> None:
+    """Phase 2 warm-up: one session per warm-up task, learned into bench/kbhome, then frozen into bench/kbfrozen."""
+    rmtree(KB_LIVE)
+    for task in WARMUP:
+        res = run_one(task, "a", 0, model, grade_it=False)
+        print(f"{task}: turns={res['num_turns']} cost={res['cost_usd']} {res['seconds']}s", flush=True)
+        ingest_into_bench_kb(RUNS / f"{task}-a-0" / "transcript.jsonl")
+    rmtree(KB_FROZEN)
+    shutil.copytree(KB_LIVE, KB_FROZEN)
+    print(f"frozen knowledge base: {KB_FROZEN}")
 
 
 def probe(model: str) -> None:
@@ -215,15 +245,18 @@ def main() -> None:
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--probe", action="store_true")
+    ap.add_argument("--warmup", action="store_true", help="phase 2: run the warm-up tasks and freeze the bench kb")
     ap.add_argument("--seed", type=int, default=7)
     args = ap.parse_args()
     RUNS.mkdir(exist_ok=True)
     WORK.mkdir(exist_ok=True)
     if args.probe:
         return probe(args.model)
+    if args.warmup:
+        return warmup(args.model)
     if args.plan:
         arms = ["a", "c"] if args.plan == "phase1" else ["a", "b"]
-        jobs = [(t, a, r) for r in range(1, args.reps + 1) for t in TASKS for a in arms]
+        jobs = [(t, a, r) for r in range(1, args.reps + 1) for t in TASKS if t not in WARMUP for a in arms]
         random.Random(args.seed).shuffle(jobs)
         for t, a, r in jobs:
             if (RUNS / f"{t}-{a}-{r}" / "result.json").exists():

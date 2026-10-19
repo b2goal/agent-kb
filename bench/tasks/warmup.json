@@ -1,0 +1,14 @@
+{
+  "W1": {"type": "code", "for": "C1",
+         "prompt": "Không cho hoàn tiền với đơn có trạng thái 'done' (đã hoàn tất): báo lỗi rõ ràng. Thêm kiểm tra và test."},
+  "W2": {"type": "code", "for": "C2",
+         "prompt": "Trang danh sách đơn hàng: thêm cột 'Tiền tệ' hiển thị tiền tệ của từng đơn."},
+  "W3": {"type": "code", "for": "C3",
+         "prompt": "Báo cáo tuần: ngoài doanh thu, trả thêm số lượng đơn của mỗi tuần. Thêm test."},
+  "W4": {"type": "code", "for": "C4",
+         "prompt": "Thêm hàm discount_amount(conn, order) trả về số tiền được giảm của một đơn (đơn vị nhỏ nhất), kèm test."},
+  "W5": {"type": "browser", "for": "B1",
+         "prompt": "App shopdemo đang chạy ở http://127.0.0.1:8800. Dùng trình duyệt, xem đơn SO-1005 có những sản phẩm nào và đã có hoàn tiền nào chưa. Tài khoản test có trong repo. Không sửa code và không đọc/ghi database trực tiếp."},
+  "W6": {"type": "browser", "for": "B2",
+         "prompt": "App shopdemo đang chạy ở http://127.0.0.1:8800. Dùng trình duyệt, cho biết ngưỡng cảnh báo tồn kho thấp hiện đang đặt là bao nhiêu. Tài khoản test có trong repo. Không sửa code và không đọc/ghi database trực tiếp."}
+}

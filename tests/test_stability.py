@@ -207,3 +207,27 @@ class ExcludeDirsTest(Env):
         (paths.ensure_home() / "config.json").write_text(json.dumps({"telemetry": {"exclude_dirs": ["bench-work-*"]}}),
                                                          encoding="utf-8")
         self.assertEqual(claude_code.pending(), [])
+
+
+class PackTest(Env):
+    def test_pack_relates_a_new_request_to_past_sessions(self):
+        from agent_kb import pack
+        from agent_kb.telemetry import Telemetry
+        t = Telemetry()
+        cwd = str(self.root / "w")
+        def session(sid, prompt, events):
+            t.replace_session({"session_id": sid, "harness": "claude", "project": "p", "cwd": cwd,
+                               "started": "2026-10-19T01:00:00Z", "prompt": prompt,
+                               "test_commands": '{"python -m unittest discover -s tests -t .": 1}'}, events)
+        ev = lambda **kw: dict({"tool": "Edit", "category": "edit", "outcome": "ok", "url": None, "target": None,  # noqa
+                               "error_sig": None, "file": None}, **kw)
+        session("s1", "Không cho hoàn tiền đơn quá 30 ngày", [ev(file=cwd + "/shop/orders/adjustments.py"),
+                                                              ev(category="read", file=cwd + "/tests/test_orders.py")])
+        session("s2", "Thêm cột tiền tệ vào danh sách đơn", [ev(file=cwd + "/shop/web/server.py"),
+                 ev(category="browser", tool="mcp__playwright__browser_navigate", target="act:navigate",
+                    url="http://127.0.0.1:8800/orders/o/abc123def0")])
+        text = pack.build("Nút Hoàn tiền bị lỗi 500", "p", t)
+        self.assertIn("shop/orders/adjustments.py (edited)", text)
+        self.assertIn("python -m unittest discover -s tests -t .", text)
+        self.assertLess(text.index("hoàn tiền"), text.index("tiền tệ") if "tiền tệ" in text else len(text))
+        self.assertEqual(pack.build("xyz", "p", t), "")

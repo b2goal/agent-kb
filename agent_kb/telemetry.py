@@ -29,13 +29,19 @@ CREATE TABLE IF NOT EXISTS trigger_state (project TEXT PRIMARY KEY, last_fired T
   sessions_at_apply INTEGER);
 """
 
-STEPS = [_SCHEMA]           # append migration steps; never edit a released one
+def _v2_prompt(conn) -> None:
+    """The session's first request, used to relate a new task to past sessions (kb pack)."""
+    if not schema.has_column(conn, "sessions", "prompt"):
+        conn.execute("ALTER TABLE sessions ADD COLUMN prompt TEXT")
+
+
+STEPS = [_SCHEMA, _v2_prompt]   # append migration steps; never edit a released one
 
 SESSION_COLS = ["session_id", "harness", "project", "cwd", "started", "ended", "model", "version", "api_calls",
                 "api_calls_sub", "tool_calls", "tool_turns", "parallel_turns", "read_only_turns",
                 "single_read_turns", "ctx_tokens", "out_tokens", "cache_read", "cache_write", "first_ctx",
                 "cache_breaks", "compactions", "denied", "approved", "errors", "test_commands", "source_file",
-                "ingested_at"]
+                "ingested_at", "prompt"]
 EVENT_COLS = ["session_id", "harness", "project", "ts", "tool_use_id", "tool", "category", "outcome",
               "out_bytes", "agent", "cmd_prefix", "compound", "url", "target", "error_sig", "file"]
 

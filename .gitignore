@@ -7,3 +7,5 @@ dist/
 bench/node_modules/
 bench/runs/
 bench/work/
+bench/kbhome/
+bench/kbfrozen/
