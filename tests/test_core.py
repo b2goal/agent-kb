@@ -233,6 +233,20 @@ class TranscriptAndTuneTest(Env):
         self.assertEqual(second["hooks_added"], [])
         self.assertEqual(data["statusLine"]["command"], "mine")
 
+    def test_setup_repoints_an_old_launcher(self):
+        from agent_kb.adapters import claude_code
+        sp = self.root / "claude" / "settings.json"
+        sp.parent.mkdir(parents=True)
+        old = {"type": "command", "command": "old/kb.exe hook claude"}
+        sp.write_text(json.dumps({"hooks": {"SessionEnd": [{"hooks": [old]}]},
+                                  "statusLine": {"type": "command", "command": "kb statusline"}}))
+        claude_code.setup()
+        data = json.loads(sp.read_text())
+        cmd = claude_code.kb_command()
+        self.assertEqual(data["hooks"]["SessionEnd"][0]["hooks"][0]["command"], f"{cmd} hook claude")
+        self.assertEqual(len(data["hooks"]["SessionEnd"]), 1)
+        self.assertEqual(data["statusLine"]["command"], f"{cmd} statusline")
+
 
 class CliTest(Env):
     def run_kb(self, *args, stdin=""):

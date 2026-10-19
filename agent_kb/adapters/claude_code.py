@@ -164,11 +164,16 @@ def ingest_all(recent: Optional[int] = None, force: bool = False, project_dir: O
 
 # ---------------------------------------------------------------------------- setup
 def kb_command() -> str:
-    exe = shutil.which("kb")
-    if exe:
+    # Windows: never point hooks at a generated kb.exe launcher. It is unsigned, and Smart App Control
+    # can start blocking it at any time, which makes every hook fail silently. A signed python.exe is stable.
+    if os.name != "nt" and shutil.which("kb"):
         return "kb"
     exe = Path(sys.executable).as_posix()          # forward slashes: safe in Git Bash, cmd and PowerShell
     return f'"{exe}" -m agent_kb'
+
+
+def _is_mine_statusline(cmd: str) -> bool:
+    return cmd.rstrip().endswith(" statusline") and ("agent_kb" in cmd or cmd.split()[0].strip('"') == "kb")
 
 
 def settings_file(scope: str, project_dir: Optional[str] = None) -> Path:
@@ -189,8 +194,12 @@ def setup(scope: str = "user", project_dir: Optional[str] = None, statusline: bo
     added = []
     for event in TOOL_EVENTS + ["SessionEnd"]:
         groups = hooks.setdefault(event, [])
-        mine = any(HOOK_MARK in str(h.get("command", "")) for g in groups for h in g.get("hooks", []))
+        mine = [h for g in groups for h in g.get("hooks", []) if HOOK_MARK in str(h.get("command", ""))]
         if mine:
+            for h in mine:                         # re-point an older launcher (e.g. a blocked kb.exe)
+                if h.get("command") != cmd:
+                    h["command"] = cmd
+                    added.append(event + " (updated)")
             continue
         group: Dict[str, object] = {"hooks": [{"type": "command", "command": cmd, "timeout": 30}]}
         if event in TOOL_EVENTS:
@@ -198,7 +207,9 @@ def setup(scope: str = "user", project_dir: Optional[str] = None, statusline: bo
         groups.append(group)
         added.append(event)
     status_note = "kept existing"
-    if statusline and (force_statusline or "statusLine" not in data):
+    current = str((data.get("statusLine") or {}).get("command", ""))
+    if statusline and (force_statusline or "statusLine" not in data
+                       or (_is_mine_statusline(current) and current != f"{kb_command()} statusline")):
         data["statusLine"] = {"type": "command", "command": f"{kb_command()} statusline"}
         status_note = "set"
     if not dry_run and (added or status_note == "set"):

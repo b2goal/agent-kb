@@ -75,6 +75,20 @@ def cmd_doctor(args) -> int:
     spool = list((home() / "spool" / "claude").glob("*.jsonl")) if (home() / "spool" / "claude").exists() else []
     line("hook events received", bool(spool), f"{len(spool)} spool file(s)" + ("" if spool else
          " — normal right after setup; use Claude Code once, then re-run"), warn=True)
+    if hooked:                                     # the hook command must actually start
+        import subprocess
+        cmd = claude_code.kb_command() + " statusline"
+        try:
+            ran = subprocess.run(cmd, shell=True, input="{}", capture_output=True, text=True, timeout=20)
+            ok, why = ran.returncode == 0, (ran.stderr or ran.stdout).strip()[:160]
+        except (OSError, subprocess.SubprocessError) as exc:
+            ok, why = False, str(exc)[:160]
+        line("hook command starts", ok, cmd if ok else f"{cmd} -> {why}")
+    transcripts = list((cdir / "projects").glob("*/*.jsonl")) if (cdir / "projects").is_dir() else []
+    if spool and transcripts:                      # transcripts moving while the spool is quiet = hooks failing
+        lag_h = (max(f.stat().st_mtime for f in transcripts) - max(f.stat().st_mtime for f in spool)) / 3600
+        line("hooks still firing", lag_h < 1, "ok" if lag_h < 1 else
+             f"last hook event is {lag_h:.1f} h older than the newest transcript; re-run: kb setup claude")
     t = Telemetry()
     n = t.db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
     line("telemetry", True, f"{n} session(s) ingested")
