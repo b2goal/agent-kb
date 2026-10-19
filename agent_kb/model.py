@@ -13,7 +13,9 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-KINDS = ("convention", "command", "guidance", "page", "edge", "flow", "pitfall", "doc", "note")
+from . import kinds as _kinds
+
+KINDS = tuple(_kinds.REGISTRY)          # registered kinds (writing); reading accepts any valid name
 STATUSES = ("proposed", "active", "superseded", "stale", "retired")
 FRONT_KEYS = ("id", "kind", "project", "subject_key", "title", "status", "rank", "supersedes",
               "superseded_by", "valid_from", "valid_to", "source", "evidence", "tags", "extra", "hash",
@@ -50,8 +52,8 @@ class Item:
     schema: int = 1
 
     def __post_init__(self) -> None:
-        if self.kind not in KINDS:
-            raise ValueError(f"unknown kind {self.kind!r}; expected one of {KINDS}")
+        if not _kinds.valid_name(self.kind):
+            raise ValueError(f"invalid kind name {self.kind!r}")
         if self.status not in STATUSES:
             raise ValueError(f"unknown status {self.status!r}")
         if not self.id:
@@ -89,7 +91,7 @@ class Item:
                 data[key.strip()] = json.loads(raw)
             except ValueError:
                 data[key.strip()] = raw          # tolerate hand-edited plain scalars
-        data["body"] = body.lstrip("\n").rstrip() + ("\n" if body.strip() else "")
+        data["body"] = body.strip("\n").rstrip()          # round-trips exactly what to_text() wrote
         known = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
         return cls(**known)
 

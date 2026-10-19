@@ -1,6 +1,6 @@
 # STATE — agent-kb build progress
 
-Updated: 2026-10-18 (session 2, Windows install). 17 unit tests passing on Windows. Design doc: "Thiết kế chi tiết: agent-kb" (Claude Docs).
+Updated: 2026-10-19 (session 2, stage 1 done on branch p1/stability). 31 unit tests passing on Windows. Design doc: "Thiết kế chi tiết: agent-kb" (Claude Docs).
 
 ## Done (v0.1.0, 14 unit tests passing)
 
@@ -40,6 +40,20 @@ Updated: 2026-10-18 (session 2, Windows install). 17 unit tests passing on Windo
   `kb setup claude` writes plain `kb hook claude` / `kb statusline` into ~/.claude/settings.json (re-run is idempotent);
   live PostToolUse hooks from a Claude Code desktop session land in ~/.agent-kb/spool/claude/<session>.jsonl.
   Fixes: UTF-8 stdio in `kb` (cp1252 console crashed `kb stats`), tests close SQLite before temp cleanup.
+
+## Stage 1 (stability), done 2026-10-19 on branch p1/stability
+
+- P1-8 `schema.py`: WAL, busy timeout, `user_version` migrations for kb.db / telemetry.db / FTS; a DB newer
+  than the code is refused (`SchemaTooNew`). Live kb.db migrated to v2 (backup in %TEMP%/agent-kb-backup-*).
+- P1-4 `kinds.py`: kind registry; unknown kinds are read, indexed and reported by doctor; writing needs a registered kind.
+- P1-1 every store write runs in `BEGIN IMMEDIATE` (test: 6 writers -> 1 active; 6 without the lock).
+- P1-0 same-id writes follow source rank; a lower rank opens one conflict instead of overwriting.
+- P1-2 `LocalStore.reconcile()` picks up hand edits / additions / deletions (mtime+size, then hash) before search/export.
+- P1-3 SessionStart hook ingests transcripts whose SessionEnd never ran (5 s budget); `telemetry.exclude_dirs`
+  skips transcript folders (bench runs excluded in the live config).
+- doctor: config errors, schema versions, pending transcripts, unregistered kinds, conflicts, missing hook events.
+- Gate experiment (branch bench/gate-experiment): phase 1 passed, oracle pack beat CLAUDE.md-only on 5/6 tasks,
+  -38% model calls, -28% cost. Next: phase 2 (`kb pack` prototype, arm b vs a).
 
 ## Not yet verified (needs a real interactive Claude Code session on the user's machine)
 

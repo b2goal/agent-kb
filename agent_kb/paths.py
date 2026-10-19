@@ -29,7 +29,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "fixed_context_growth": 0.20,
         "browser_output_share": 0.40,
     },
-    "telemetry": {"raw_retention_days": 60},
+    # exclude_dirs: glob patterns on Claude Code's transcript folder names (~/.claude/projects/<name>) never ingested,
+    # e.g. "D--projects-agent-kb-bench-work-*" for benchmark runs
+    "telemetry": {"raw_retention_days": 60, "exclude_dirs": []},
     "harnesses": ["claude"],
 }
 
@@ -54,6 +56,18 @@ def _merge(base: dict, over: dict) -> dict:
         else:
             out[k] = v
     return out
+
+
+def config_error() -> str:
+    """Why config.json cannot be used ('' when it is fine or absent). load_config() falls back to defaults."""
+    path = home() / "config.json"
+    if not path.exists():
+        return ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        return f"{path}: {exc}"
+    return "" if isinstance(data, dict) else f"{path}: top level must be an object"
 
 
 def load_config() -> Dict[str, Any]:

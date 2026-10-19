@@ -80,21 +80,46 @@ def cmd_doctor(args) -> int:
         cmd = claude_code.kb_command() + " statusline"
         try:
             ran = subprocess.run(cmd, shell=True, input="{}", capture_output=True, text=True, timeout=20)
-            ok, why = ran.returncode == 0, (ran.stderr or ran.stdout).strip()[:160]
+            started, why = ran.returncode == 0, (ran.stderr or ran.stdout).strip()[:160]
         except (OSError, subprocess.SubprocessError) as exc:
-            ok, why = False, str(exc)[:160]
-        line("hook command starts", ok, cmd if ok else f"{cmd} -> {why}")
+            started, why = False, str(exc)[:160]
+        line("hook command starts", started, cmd if started else f"{cmd} -> {why}")
+        missing = [e for e in claude_code.TOOL_EVENTS + ["SessionStart", "SessionEnd"]
+                   if f'"{e}"' not in sp.read_text(encoding="utf-8")]
+        line("hook events registered", not missing, "all" if not missing else
+             f"missing {', '.join(missing)}; re-run: kb setup claude")
     transcripts = list((cdir / "projects").glob("*/*.jsonl")) if (cdir / "projects").is_dir() else []
     if spool and transcripts:                      # transcripts moving while the spool is quiet = hooks failing
         lag_h = (max(f.stat().st_mtime for f in transcripts) - max(f.stat().st_mtime for f in spool)) / 3600
         line("hooks still firing", lag_h < 1, "ok" if lag_h < 1 else
              f"last hook event is {lag_h:.1f} h older than the newest transcript; re-run: kb setup claude")
-    t = Telemetry()
+    from . import schema
+    from .paths import config_error
+    err = config_error()
+    line("config.json", not err, err or "ok (defaults where unset)")
+    try:
+        t = Telemetry()
+        from .store import LocalStore
+        store = LocalStore()
+    except schema.SchemaTooNew as exc:
+        line("database schema", False, str(exc))
+        return 1
     n = t.db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
-    line("telemetry", True, f"{n} session(s) ingested")
-    from .store import LocalStore
+    line("telemetry", True, f"{n} session(s) ingested, schema v{schema.version(t.db)}")
+    left = len(claude_code.pending(t))
+    line("transcripts waiting for ingest", left == 0, "none" if not left else
+         f"{left} (ingested at the next session start, or run: kb ingest)", warn=True)
+    rec = store.reconcile()
+    line("knowledge files", not rec["errors"], f"schema v{schema.version(store.db)}; " +
+         (f"unreadable: {'; '.join(rec['errors'][:3])}" if rec["errors"] else
+          f"{len(rec['edited']) + len(rec['added']) + len(rec['removed'])} hand change(s) picked up"))
+    unknown = store.unknown_kinds()
+    line("kinds", not unknown, "all registered" if not unknown else
+         f"not registered in this version (read-only): {unknown}", warn=True)
+    conflicts = store.conflicts()
+    line("open conflicts", not conflicts, "none" if not conflicts else f"{len(conflicts)}; see: kb outbox", warn=True)
     for ix in enabled_indexes(load_config()):
-        ix.update(LocalStore())
+        ix.update(store)
         h = ix.health()
         line(f"index {ix.name}", bool(h.get("ok")), f"{h.get('docs')} docs")
     return 0 if ok else 1
