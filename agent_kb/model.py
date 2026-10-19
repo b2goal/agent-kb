@@ -91,7 +91,7 @@ class Item:
                 data[key.strip()] = json.loads(raw)
             except ValueError:
                 data[key.strip()] = raw          # tolerate hand-edited plain scalars
-        data["body"] = body.lstrip("\n").rstrip() + ("\n" if body.strip() else "")
+        data["body"] = body.strip("\n").rstrip()          # round-trips exactly what to_text() wrote
         known = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
         return cls(**known)
 

@@ -25,6 +25,7 @@ from ..telemetry import Telemetry
 HARNESS = "claude"
 TOOL_EVENTS = ["PostToolUse", "PostToolUseFailure", "PermissionRequest", "PermissionDenied"]
 HOOK_MARK = "hook claude"
+CATCH_UP_BUDGET_S = 5.0       # SessionStart blocks the new session: keep catch-up short
 
 
 def claude_dir() -> Path:
@@ -55,6 +56,8 @@ def handle_hook(payload: Dict[str, object]) -> int:
             fh.write(json.dumps(line, ensure_ascii=False) + "\n")
         if event == "SessionEnd" and payload.get("transcript_path"):
             ingest_file(Path(str(payload["transcript_path"])), force=True)
+        if event == "SessionStart":              # catch up on sessions whose SessionEnd never ran
+            ingest_pending(exclude=payload.get("transcript_path"))
     except Exception:            # a hook must never break the user's session
         return 0
     return 0
@@ -150,6 +153,34 @@ def _transcript_project(f: Path) -> Optional[str]:
     return None
 
 
+def pending(tele: Optional[Telemetry] = None) -> List[Path]:
+    """Transcripts never ingested, or grown / changed since their last ingest (newest first)."""
+    tele = tele or Telemetry()
+    out = []
+    for f in discover():
+        st = f.stat()
+        cur = tele.cursor(str(f))
+        if not cur or cur["size"] != st.st_size or abs(cur["mtime"] - st.st_mtime) >= 1e-6:
+            out.append(f)
+    return out
+
+
+def ingest_pending(exclude: Optional[object] = None, budget_s: float = CATCH_UP_BUDGET_S) -> Dict[str, int]:
+    """Ingest pending transcripts until the time budget runs out; the rest wait for the next session."""
+    tele = Telemetry()
+    skip = Path(str(exclude)).resolve() if exclude else None
+    files = [f for f in pending(tele) if f.resolve() != skip]
+    t0, done = time.time(), 0
+    for i, f in enumerate(files):
+        if time.time() - t0 > budget_s:
+            return {"ingested": done, "left": len(files) - i}
+        try:
+            done += ingest_file(f, tele) is not None
+        except Exception:                        # one bad transcript must not stop the catch-up
+            continue
+    return {"ingested": done, "left": 0}
+
+
 def ingest_all(recent: Optional[int] = None, force: bool = False, project_dir: Optional[str] = None) -> Dict[str, int]:
     tele = Telemetry()
     from ..paths import load_config
@@ -192,7 +223,7 @@ def setup(scope: str = "user", project_dir: Optional[str] = None, statusline: bo
     cmd = f"{kb_command()} {HOOK_MARK}"
     hooks = data.setdefault("hooks", {})
     added = []
-    for event in TOOL_EVENTS + ["SessionEnd"]:
+    for event in TOOL_EVENTS + ["SessionStart", "SessionEnd"]:
         groups = hooks.setdefault(event, [])
         mine = [h for g in groups for h in g.get("hooks", []) if HOOK_MARK in str(h.get("command", ""))]
         if mine:

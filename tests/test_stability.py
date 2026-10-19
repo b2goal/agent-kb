@@ -134,3 +134,62 @@ class SchemaVersionTest(Env):             # P1-8
         conn.close()
         with self.assertRaises(schema.SchemaTooNew):
             store.LocalStore()
+
+
+class CatchUpIngestTest(Env):             # P1-3
+    def test_session_start_ingests_sessions_that_never_ended(self):
+        from agent_kb.adapters import claude_code
+        from agent_kb.telemetry import Telemetry
+        from tests.test_core import _transcript
+        r = self.repo()
+        lost = self.root / "claude" / "projects" / "p" / "sess-1.jsonl"
+        _transcript(lost, str(r))                        # a session whose SessionEnd hook never ran
+        current = self.root / "claude" / "projects" / "p" / "sess-now.jsonl"
+        current.write_text(lost.read_text(encoding="utf-8").replace("sess-1", "sess-now"), encoding="utf-8")
+        self.assertEqual(len(claude_code.pending()), 2)
+        claude_code.handle_hook({"hook_event_name": "SessionStart", "session_id": "sess-now",
+                                 "transcript_path": str(current)})
+        ids = [r["session_id"] for r in Telemetry().sessions()]
+        self.assertEqual(ids, ["sess-1"])                 # the running session is left for its own SessionEnd
+        self.assertEqual(claude_code.pending(), [current])
+
+    def test_catch_up_respects_its_time_budget(self):
+        from agent_kb.adapters import claude_code
+        from tests.test_core import _transcript
+        r = self.repo()
+        _transcript(self.root / "claude" / "projects" / "p" / "sess-1.jsonl", str(r))
+        self.assertEqual(claude_code.ingest_pending(budget_s=-1), {"ingested": 0, "left": 1})
+
+
+class KindConformanceTest(Env):           # one parametrized check over the whole registry
+    def test_every_registered_kind_round_trips(self):
+        from agent_kb import kinds
+        from agent_kb.indexes import Query
+        from agent_kb.indexes.fts import FTSIndex
+        from agent_kb.model import Item
+        from agent_kb.store import LocalStore
+        s = LocalStore()
+        made = {}
+        for name in kinds.REGISTRY:
+            with self.subTest(kind=name):
+                it = Item(kind=name, project="p", subject_key=f"{name}-key", title=f"{name} title",
+                          body=f"marker{name} body", tags=["t"], extra={"n": 1})
+                self.assertIn(s.put(it)["result"], ("created",))
+                back = s.get(it.id)
+                for f in ("kind", "project", "subject_key", "title", "body", "status", "rank", "tags", "extra"):
+                    self.assertEqual(getattr(back, f), getattr(it, f), f)
+                made[name] = it.id
+        self.assertEqual(s.rebuild_meta(), len(kinds.REGISTRY))
+        self.assertEqual(s.reconcile(), {"edited": [], "added": [], "removed": [], "errors": []})
+        ix = FTSIndex()
+        ix.build(s)
+        for name, item_id in made.items():
+            with self.subTest(kind=name):
+                self.assertEqual([h[0] for h in ix.query(Query(text=f"marker{name}", project="p"))], [item_id])
+
+
+class DoctorTest(Env):
+    def test_broken_config_is_reported(self):
+        from agent_kb import paths
+        (paths.ensure_home() / "config.json").write_text('{"query": {', encoding="utf-8")
+        self.assertIn("config.json", paths.config_error())

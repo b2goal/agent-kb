@@ -56,6 +56,18 @@ def _merge(base: dict, over: dict) -> dict:
     return out
 
 
+def config_error() -> str:
+    """Why config.json cannot be used ('' when it is fine or absent). load_config() falls back to defaults."""
+    path = home() / "config.json"
+    if not path.exists():
+        return ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        return f"{path}: {exc}"
+    return "" if isinstance(data, dict) else f"{path}: top level must be an object"
+
+
 def load_config() -> Dict[str, Any]:
     path = home() / "config.json"
     user: dict = {}

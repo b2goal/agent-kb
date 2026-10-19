@@ -229,7 +229,7 @@ class TranscriptAndTuneTest(Env):
         first = claude_code.setup()
         second = claude_code.setup()
         data = json.loads(sp.read_text())
-        self.assertEqual(len(first["hooks_added"]), 5)
+        self.assertEqual(len(first["hooks_added"]), 6)
         self.assertEqual(second["hooks_added"], [])
         self.assertEqual(data["statusLine"]["command"], "mine")
 
