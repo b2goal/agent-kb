@@ -37,6 +37,7 @@ def search(store, q: Query, config: Optional[dict] = None) -> List[Dict[str, obj
     timeout = float(config["query"]["timeout_s"])
     k = int(config["query"]["fusion_k"])
     indexes = enabled_indexes(config)
+    store.reconcile()                  # pick up files edited by hand before any index answers
     rankings: List[List[tuple]] = []
     used: List[str] = []
 

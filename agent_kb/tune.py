@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from . import kinds
 from .model import Item
 from .paths import ensure_home, load_config
 from .project import project_id, slug
@@ -179,7 +180,8 @@ def list_outbox(project: Optional[str] = None) -> List[Dict[str, object]]:
 
 # ---------------------------------------------------------------------------- apply + export
 def export_claude_md(store: LocalStore, project: str) -> str:
-    items = [i for i in store.find(project=[project, "global"], kind=["guidance", "convention", "command"],
+    store.reconcile()
+    items = [i for i in store.find(project=[project, "global"], kind=kinds.delivered(),
                                    status="active")]
     items.sort(key=lambda i: (i.kind, i.subject_key))
     lines = [MARK_START, "# Project notes (agent-kb)"]

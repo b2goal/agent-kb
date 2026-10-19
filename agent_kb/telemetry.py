@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+from . import schema
 from .paths import ensure_home
 
 _SCHEMA = """
@@ -28,6 +29,8 @@ CREATE TABLE IF NOT EXISTS trigger_state (project TEXT PRIMARY KEY, last_fired T
   sessions_at_apply INTEGER);
 """
 
+STEPS = [_SCHEMA]           # append migration steps; never edit a released one
+
 SESSION_COLS = ["session_id", "harness", "project", "cwd", "started", "ended", "model", "version", "api_calls",
                 "api_calls_sub", "tool_calls", "tool_turns", "parallel_turns", "read_only_turns",
                 "single_read_turns", "ctx_tokens", "out_tokens", "cache_read", "cache_write", "first_ctx",
@@ -44,13 +47,16 @@ def since_iso(days: int) -> str:
 class Telemetry:
     def __init__(self, path: Optional[Path] = None) -> None:
         self.path = path or (ensure_home() / "telemetry.db")
-        self.db = sqlite3.connect(str(self.path))
-        self.db.row_factory = sqlite3.Row
-        self.db.executescript(_SCHEMA)
+        self.db = schema.connect(self.path)
+        schema.migrate(self.db, "telemetry", STEPS)
 
     # ------------------------------------------------------------------ writes
     def replace_session(self, session: Dict[str, object], events: Iterable[Dict[str, object]]) -> None:
         sid = session["session_id"]
+        with schema.immediate(self.db):
+            self._replace(sid, session, events)
+
+    def _replace(self, sid: str, session: Dict[str, object], events: Iterable[Dict[str, object]]) -> None:
         self.db.execute("DELETE FROM tool_events WHERE session_id=?", (sid,))
         self.db.execute(f"INSERT OR REPLACE INTO sessions ({','.join(SESSION_COLS)}) "
                         f"VALUES ({','.join('?' * len(SESSION_COLS))})",
@@ -59,7 +65,6 @@ class Telemetry:
                  for c in EVENT_COLS] for ev in events]
         self.db.executemany(f"INSERT INTO tool_events ({','.join(EVENT_COLS)}) "
                             f"VALUES ({','.join('?' * len(EVENT_COLS))})", rows)
-        self.db.commit()
 
     def cursor(self, path: str) -> Optional[sqlite3.Row]:
         return self.db.execute("SELECT * FROM ingest_cursor WHERE path=?", (path,)).fetchone()

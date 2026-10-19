@@ -4,3 +4,6 @@ __pycache__/
 build/
 dist/
 *.bundle
+bench/node_modules/
+bench/runs/
+bench/work/

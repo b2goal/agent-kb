@@ -2,12 +2,20 @@
 from __future__ import annotations
 
 import re
-import sqlite3
 from pathlib import Path
 from typing import Dict, List
 
+from .. import schema
 from ..paths import ensure_home
 from . import Hit, Query
+
+
+STEPS = [
+    "CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5("
+    " item_id UNINDEXED, project UNINDEXED, kind UNINDEXED, status UNINDEXED,"
+    " title, subject_key, body, tokenize='unicode61 remove_diacritics 2');"
+    "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)",
+]
 
 
 class FTSIndex:
@@ -16,12 +24,8 @@ class FTSIndex:
 
     def __init__(self, path: Path = None) -> None:
         self.path = path or (ensure_home() / "index" / f"fts-v{self.version}.db")
-        self.db = sqlite3.connect(str(self.path), check_same_thread=False)
-        self.db.executescript(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5("
-            " item_id UNINDEXED, project UNINDEXED, kind UNINDEXED, status UNINDEXED,"
-            " title, subject_key, body, tokenize='unicode61 remove_diacritics 2');"
-            "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);")
+        self.db = schema.connect(self.path, check_same_thread=False)
+        schema.migrate(self.db, "fts", STEPS)
 
     def _seq(self) -> int:
         row = self.db.execute("SELECT value FROM meta WHERE key='last_seq'").fetchone()
@@ -37,27 +41,27 @@ class FTSIndex:
                          item.subject_key.replace("/", " ").replace(":", " "), item.body))
 
     def build(self, store) -> int:
-        self.db.execute("DELETE FROM docs")
         n = 0
-        for item in store.all_items():
-            self._put(item)
-            n += 1
-        self._set_seq(store.last_seq())
-        self.db.commit()
+        with schema.immediate(self.db):
+            self.db.execute("DELETE FROM docs")
+            for item in store.all_items():
+                self._put(item)
+                n += 1
+            self._set_seq(store.last_seq())
         return n
 
     def update(self, store) -> int:
         changes = store.changes_since(self._seq())
         if not changes:
             return 0
-        for item_id in dict.fromkeys(c["item_id"] for c in changes):
-            item = store.get(item_id)
-            if item is None:
-                self.db.execute("DELETE FROM docs WHERE item_id=?", (item_id,))
-            else:
-                self._put(item)
-        self._set_seq(changes[-1]["seq"])
-        self.db.commit()
+        with schema.immediate(self.db):
+            for item_id in dict.fromkeys(c["item_id"] for c in changes):
+                item = store.get(item_id)
+                if item is None:
+                    self.db.execute("DELETE FROM docs WHERE item_id=?", (item_id,))
+                else:
+                    self._put(item)
+            self._set_seq(changes[-1]["seq"])
         return len(changes)
 
     def query(self, q: Query) -> List[Hit]:
