@@ -273,3 +273,64 @@ def test_commands(p: Parsed) -> Counter:
             if shellparse.TEST_HINT.search(cmd) and ev["outcome"] == "ok":
                 c[re.sub(r"\s+", " ", cmd).strip()[:160]] += 1
     return c
+
+
+# ---------------------------------------------------------------------------- accounts used in the browser
+_USER_FIELD = re.compile(r"user|e-?mail|login|account|tên đăng nhập|tài khoản|đăng nhập", re.I)
+_SECRET_FIELD = re.compile(r"pass|mật khẩu|mat khau|secret|token|pin|otp|code", re.I)
+_DENIED = re.compile(r"\b403\b|forbidden|access denied|permission denied|not authori[sz]ed|không có quyền|cần quyền",
+                     re.I)
+_PAGE_URL = re.compile(r"Page URL:\s*(\S+)")
+
+
+def _login_names(tool: str, inp: dict) -> List[str]:
+    """Account names typed into login fields. Values of password-like fields are never read."""
+    fields = inp.get("fields") if isinstance(inp.get("fields"), list) else [inp]
+    out = []
+    for f in fields:
+        if not isinstance(f, dict):
+            continue
+        label = str(f.get("name") or f.get("element") or f.get("label") or "")
+        value = f.get("value") if "fields" in inp else f.get("text")
+        if value and _USER_FIELD.search(label) and not _SECRET_FIELD.search(label) and f.get("type") != "password":
+            out.append(str(value)[:60])
+    return out
+
+
+def accounts(p: Parsed, cwd: Optional[str] = None) -> Dict[str, object]:
+    """Which account reached which page, which pages refused which account, and where test accounts were found.
+
+    Only account names are kept; passwords and tool output are not (the raw transcript does contain them).
+    """
+    events = sorted(p.tools.values(), key=lambda e: e.get("ts") or "")
+    user, logins, denied, reached, found = None, [], [], {}, []
+    for i, ev in enumerate(events):
+        tool, inp, res = str(ev["tool"]), ev.get("input") or {}, str(ev.get("result") or "")
+        names = _login_names(tool, inp) if category(tool) == "browser" else []
+        if names:
+            user = names[0]
+            logins.append(user)
+            for prev in events[:i]:                      # where did the agent find this account name?
+                prev_res = str(prev.get("result") or "")
+                if user not in prev_res or category(str(prev["tool"])) not in ("read", "search"):
+                    continue
+                pinp = prev.get("input") or {}
+                path = pinp.get("file_path") or (prev_res.split(":", 1)[0] if ":" in prev_res else None)
+                if path:
+                    rel = path.replace("\\", "/")
+                    if cwd and rel.lower().startswith(cwd.replace("\\", "/").lower()):
+                        rel = rel[len(cwd):].lstrip("/\\")
+                    if rel not in found:
+                        found.append(rel[:200])
+            continue
+        if category(tool) == "browser" and user:
+            m = _PAGE_URL.search(res)
+            url = (m.group(1) if m else inp.get("url")) or None
+            if not url:
+                continue
+            if _DENIED.search(res[:3000]):
+                if {"url": url, "user": user} not in denied:
+                    denied.append({"url": url, "user": user})
+            elif ev["outcome"] == "ok":
+                reached[url] = user
+    return {"logins": logins, "denied": denied, "reached": reached, "credentials_in": found}

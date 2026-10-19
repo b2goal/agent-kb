@@ -48,7 +48,7 @@ def median(rows, key):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--other", default="c", choices=["b", "c", "d"])
+    ap.add_argument("--other", default="c", choices=["b", "c", "d", "e"])
     args = ap.parse_args()
     rows = [metrics(d) for d in sorted((BENCH / "runs").glob("[BC][0-9]-*"))
             if (d / "result.json").exists() and not d.name.endswith("-0")]      # rep 0 = dry runs

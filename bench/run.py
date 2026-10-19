@@ -74,7 +74,7 @@ def prepare(task: str, arm: str, run_id: str) -> Path:
         rmtree(work / "shopdemo" / "web")
         with open(work / "README.md", "a", encoding="utf-8") as fh:
             fh.write("\nThe web UI is maintained and deployed separately; this repo holds the domain code and seed data.\n")
-    shutil.copy(BENCH / "arms" / ("CLAUDE_pull.md" if arm == "d" else "CLAUDE.md"), work / "CLAUDE.md")
+    shutil.copy(BENCH / "arms" / {"d": "CLAUDE_pull.md", "e": "CLAUDE_pull2.md"}.get(arm, "CLAUDE.md"), work / "CLAUDE.md")
     settings = {}                                   # permissions go on the command line: untrusted dirs ignore them here
     log = (RUNS / run_id / "inject.log").as_posix()
     if arm == "c":
@@ -184,7 +184,7 @@ def run_one(task: str, arm: str, rep: int, model: str, grade_it: bool = True) ->
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             wait_port(8800)
         env = None
-        if arm == "d":                                  # pull: the agent queries its own copy of the frozen bench kb
+        if arm in ("d", "e"):                           # pull: the agent queries its own copy of the frozen bench kb
             kb = run_dir / "kbhome"
             shutil.copytree(KB_FROZEN, kb)
             env = dict(os.environ, AGENT_KB_HOME=str(kb), PYTHONIOENCODING="utf-8")
@@ -222,6 +222,16 @@ def warmup(model: str) -> None:
     print(f"frozen knowledge base: {KB_FROZEN}")
 
 
+def relearn() -> None:
+    """Re-ingest the existing warm-up transcripts with the current parser (no new sessions), then freeze."""
+    rmtree(KB_LIVE)
+    for task in WARMUP:
+        ingest_into_bench_kb(RUNS / f"{task}-a-0" / "transcript.jsonl")
+    rmtree(KB_FROZEN)
+    shutil.copytree(KB_LIVE, KB_FROZEN)
+    print(f"frozen knowledge base: {KB_FROZEN}")
+
+
 def probe(model: str) -> None:
     """Step 0: a nonce added only by the hook must come back in the answer, 3 times out of 3."""
     ok = 0
@@ -252,13 +262,14 @@ def probe(model: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--task")
-    ap.add_argument("--arm", choices=["a", "b", "c", "d"])
+    ap.add_argument("--arm", choices=["a", "b", "c", "d", "e"])
     ap.add_argument("--rep", type=int, default=1)
-    ap.add_argument("--plan", choices=["phase1", "phase2", "pull"])
+    ap.add_argument("--plan", choices=["phase1", "phase2", "pull", "pull2"])
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--probe", action="store_true")
     ap.add_argument("--warmup", action="store_true", help="phase 2: run the warm-up tasks and freeze the bench kb")
+    ap.add_argument("--relearn", action="store_true", help="rebuild the bench kb from the existing warm-up transcripts")
     ap.add_argument("--seed", type=int, default=7)
     args = ap.parse_args()
     RUNS.mkdir(exist_ok=True)
@@ -267,8 +278,10 @@ def main() -> None:
         return probe(args.model)
     if args.warmup:
         return warmup(args.model)
+    if args.relearn:
+        return relearn()
     if args.plan:
-        arms = {"phase1": ["a", "c"], "phase2": ["a", "b"], "pull": ["a", "d"]}[args.plan]
+        arms = {"phase1": ["a", "c"], "phase2": ["a", "b"], "pull": ["a", "d"], "pull2": ["a", "e"]}[args.plan]
         jobs = [(t, a, r) for r in range(1, args.reps + 1) for t in TASKS if t not in WARMUP for a in arms]
         random.Random(args.seed).shuffle(jobs)
         for t, a, r in jobs:

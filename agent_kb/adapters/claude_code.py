@@ -129,7 +129,8 @@ def ingest_file(path: Path, tele: Optional[Telemetry] = None, force: bool = Fals
                 errors=outcomes.count("error"))
     session = dict(summ, session_id=p.session_id, harness=HARNESS, project=project_id(p.cwd or str(path.parent)),
                    cwd=p.cwd, version=p.version, test_commands=json.dumps(tr.test_commands(p), ensure_ascii=False),
-                   source_file=str(path), ingested_at=datetime.now(timezone.utc).isoformat(), prompt=p.prompt)
+                   source_file=str(path), ingested_at=datetime.now(timezone.utc).isoformat(), prompt=p.prompt,
+                   notes=json.dumps({"accounts": tr.accounts(p, p.cwd)}, ensure_ascii=False))
     tele.replace_session(session, events)
     tele.set_cursor(str(path), st.st_size, st.st_mtime, p.session_id)
     return session

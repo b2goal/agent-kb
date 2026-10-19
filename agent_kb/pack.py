@@ -115,6 +115,9 @@ def build(prompt: str, project: str, tele: Optional[Telemetry] = None, max_lines
     pages: List[str] = []
     failed: Counter = Counter()
     relogged = False
+    reached_by: Dict[str, str] = {}                      # page URL -> account that reached it
+    denied: List[dict] = []
+    cred_files: List[str] = []
     for rank, r in enumerate(related):
         w = 1.0 / (rank + 1)
         s, evs = r["session"], r["events"]
@@ -122,6 +125,11 @@ def build(prompt: str, project: str, tele: Optional[Telemetry] = None, max_lines
             tests[_test_command(name)] += n * w
         pages += [u for u in _destinations(evs) if u not in pages][:PAGES_PER_SESSION]   # every related session gets a say
         relogged = relogged or _relogged(evs)
+        acc = (json.loads(s["notes"] or "{}") if "notes" in s.keys() else {}).get("accounts") or {}
+        for url, user in (acc.get("reached") or {}).items():
+            reached_by.setdefault(url, user)
+        denied += [d for d in acc.get("denied") or [] if d not in denied]
+        cred_files += [f for f in acc.get("credentials_in") or [] if f not in cred_files]
         for e in evs:
             rel = _rel(e["file"], s["cwd"])
             if rel and e["category"] == "edit":
@@ -150,9 +158,14 @@ def build(prompt: str, project: str, tele: Optional[Telemetry] = None, max_lines
         lines.append(f"- Error met there: {sig}")
     if browser_task and pages:
         lines.append("- Pages those sessions ended on, latest first (open directly instead of browsing menus):")
-        lines += [f"  - {u}" for u in pages[:MAX_PAGES]]
-    if browser_task and relogged:
-        lines.append("- A related session had to log out and in again with another account to reach its page.")
+        lines += [f"  - {u}" + (f" (reached as `{reached_by[u]}`)" if u in reached_by else "") for u in pages[:MAX_PAGES]]
+    if browser_task:
+        for d in denied[:2]:
+            lines.append(f"- Access denied for `{d['user']}` on {d['url']}; another account was needed.")
+        if cred_files:
+            lines.append(f"- Test account names were found in: {', '.join(cred_files[:2])} (passwords are not stored here).")
+        elif relogged:
+            lines.append("- A related session had to log out and in again with another account to reach its page.")
     if browser_task:
         for what, n in failed.most_common(3):
             lines.append(f"- Failed action seen {n}x on {what}")

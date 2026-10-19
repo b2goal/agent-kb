@@ -35,13 +35,19 @@ def _v2_prompt(conn) -> None:
         conn.execute("ALTER TABLE sessions ADD COLUMN prompt TEXT")
 
 
-STEPS = [_SCHEMA, _v2_prompt]   # append migration steps; never edit a released one
+def _v3_notes(conn) -> None:
+    """Derived per-session facts as JSON (e.g. which account reached which page). Never secrets."""
+    if not schema.has_column(conn, "sessions", "notes"):
+        conn.execute("ALTER TABLE sessions ADD COLUMN notes TEXT")
+
+
+STEPS = [_SCHEMA, _v2_prompt, _v3_notes]   # append migration steps; never edit a released one
 
 SESSION_COLS = ["session_id", "harness", "project", "cwd", "started", "ended", "model", "version", "api_calls",
                 "api_calls_sub", "tool_calls", "tool_turns", "parallel_turns", "read_only_turns",
                 "single_read_turns", "ctx_tokens", "out_tokens", "cache_read", "cache_write", "first_ctx",
                 "cache_breaks", "compactions", "denied", "approved", "errors", "test_commands", "source_file",
-                "ingested_at", "prompt"]
+                "ingested_at", "prompt", "notes"]
 EVENT_COLS = ["session_id", "harness", "project", "ts", "tool_use_id", "tool", "category", "outcome",
               "out_bytes", "agent", "cmd_prefix", "compound", "url", "target", "error_sig", "file"]
 
