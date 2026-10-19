@@ -13,6 +13,7 @@ import os
 import random
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -25,7 +26,17 @@ TASKS = json.loads((BENCH / "tasks" / "tasks.json").read_text(encoding="utf-8"))
 DEFAULT_MODEL = "claude-sonnet-5-5"
 TIMEOUT_S = 25 * 60
 ALLOW = ["Read", "Edit", "Write", "Glob", "Grep", "Bash(python:*)", "Bash(python -m unittest:*)", "Bash(git status:*)",
-         "Bash(git diff:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(grep:*)", "mcp__playwright"]
+         "Bash(git diff:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(grep:*)", "Bash(tail:*)", "Bash(head:*)",
+         "PowerShell(python:*)", "PowerShell(Get-Content:*)", "PowerShell(Select-Object:*)", "mcp__playwright"]
+
+
+def rmtree(path: Path) -> None:
+    """Remove a work copy; git leaves read-only files that a plain rmtree cannot delete on Windows."""
+    def fix(func, p, _exc):
+        os.chmod(p, stat.S_IWRITE)
+        func(p)
+    if path.exists():
+        shutil.rmtree(path, onerror=fix)
 
 
 def claude_exe() -> str:
@@ -42,13 +53,13 @@ def project_slug(path: Path) -> str:
 
 def prepare(task: str, arm: str, run_id: str) -> Path:
     work = WORK / run_id
-    shutil.rmtree(work, ignore_errors=True)
+    rmtree(work)
     shutil.copytree(BENCH / "shopdemo", work, ignore=shutil.ignore_patterns("*.db", "__pycache__"))
     setup = TASKS[task]["setup"]
     if setup:
         subprocess.run([sys.executable, str(BENCH / "tasks" / setup)], cwd=work, check=True)
     shutil.copy(BENCH / "arms" / "CLAUDE.md", work / "CLAUDE.md")
-    settings = {"permissions": {"allow": ALLOW}}
+    settings = {}                                   # permissions go on the command line: untrusted dirs ignore them here
     if arm in ("b", "c"):
         pack = BENCH / "packs" / f"{task}.md" if arm == "c" else BENCH / "packs_auto" / f"{task}.md"
         cmd = f'"{Path(sys.executable).as_posix()}" "{(BENCH / "inject.py").as_posix()}" "{pack.as_posix()}" ' \
@@ -57,6 +68,7 @@ def prepare(task: str, arm: str, run_id: str) -> Path:
     (work / ".claude").mkdir()
     (work / ".claude" / "settings.json").write_text(json.dumps(settings, indent=2), encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=work, check=True)
+    subprocess.run(["git", "config", "core.autocrlf", "false"], cwd=work, check=True)
     subprocess.run(["git", "add", "-A"], cwd=work, check=True)
     subprocess.run(["git", "-c", "user.name=bench", "-c", "user.email=bench@example.test", "commit", "-qm", "base"],
                    cwd=work, check=True)
@@ -84,7 +96,8 @@ def mcp_config(out: Path) -> Path:
 def run_claude(work: Path, prompt: str, model: str, run_dir: Path, browser: bool) -> dict:
     sid = str(uuid.uuid4())
     cmd = [claude_exe(), "-p", prompt, "--model", model, "--output-format", "stream-json", "--verbose",
-           "--setting-sources", "project", "--permission-mode", "acceptEdits", "--session-id", sid]
+           "--setting-sources", "project", "--permission-mode", "acceptEdits", "--session-id", sid,
+           "--allowedTools", *ALLOW]
     if browser:
         cmd += ["--mcp-config", str(mcp_config(run_dir / "mcp.json")), "--strict-mcp-config"]
     else:
@@ -136,7 +149,7 @@ def grade(task: str, work: Path, final_text: str, run_dir: Path) -> dict:
 def run_one(task: str, arm: str, rep: int, model: str) -> dict:
     run_id = f"{task}-{arm}-{rep}"
     run_dir = RUNS / run_id
-    shutil.rmtree(run_dir, ignore_errors=True)
+    rmtree(run_dir)
     run_dir.mkdir(parents=True)
     work = prepare(task, arm, run_id)
     browser = TASKS[task]["type"] == "browser"
@@ -163,10 +176,10 @@ def probe(model: str) -> None:
         nonce = uuid.uuid4().hex[:8]
         run_id = f"probe-{i}"
         run_dir = RUNS / run_id
-        shutil.rmtree(run_dir, ignore_errors=True)
+        rmtree(run_dir)
         run_dir.mkdir(parents=True)
         work = WORK / run_id
-        shutil.rmtree(work, ignore_errors=True)
+        rmtree(work)
         (work / ".claude").mkdir(parents=True)
         pack = run_dir / "pack.md"
         pack.write_text(f"Ma kiem tra cua phien nay la {nonce}.", encoding="utf-8")
