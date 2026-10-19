@@ -16,6 +16,7 @@ import socket
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -58,6 +59,11 @@ def prepare(task: str, arm: str, run_id: str) -> Path:
     setup = TASKS[task]["setup"]
     if setup:
         subprocess.run([sys.executable, str(BENCH / "tasks" / setup)], cwd=work, check=True)
+    if TASKS[task]["type"] == "browser":
+        # The UI is "deployed elsewhere": the agent's repo has no web source, so pages must be explored in the browser.
+        rmtree(work / "shopdemo" / "web")
+        with open(work / "README.md", "a", encoding="utf-8") as fh:
+            fh.write("\nThe web UI is maintained and deployed separately; this repo holds the domain code and seed data.\n")
     shutil.copy(BENCH / "arms" / "CLAUDE.md", work / "CLAUDE.md")
     settings = {}                                   # permissions go on the command line: untrusted dirs ignore them here
     if arm in ("b", "c"):
@@ -153,10 +159,14 @@ def run_one(task: str, arm: str, rep: int, model: str) -> dict:
     run_dir.mkdir(parents=True)
     work = prepare(task, arm, run_id)
     browser = TASKS[task]["type"] == "browser"
-    server = None
+    server, app = None, work
     try:
         if browser:
-            server = subprocess.Popen([sys.executable, "-m", "shopdemo.web.server", "--port", "8800"], cwd=work,
+            app = Path(tempfile.gettempdir()) / "shopdemo-app" / run_id     # the deployed app, away from the repo
+            rmtree(app)
+            shutil.copytree(BENCH / "shopdemo", app, ignore=shutil.ignore_patterns("*.db", "__pycache__"))
+            subprocess.run([sys.executable, "seed.py"], cwd=app, check=True, capture_output=True)
+            server = subprocess.Popen([sys.executable, "-m", "shopdemo.web.server", "--port", "8800"], cwd=app,
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             wait_port(8800)
         res = run_claude(work, TASKS[task]["prompt"], model, run_dir, browser)
@@ -164,7 +174,7 @@ def run_one(task: str, arm: str, rep: int, model: str) -> dict:
         if server:
             server.terminate()
             server.wait(10)
-    res.update(task=task, arm=arm, rep=rep, model=model, grade=grade(task, work, res["final_text"], run_dir))
+    res.update(task=task, arm=arm, rep=rep, model=model, grade=grade(task, app if browser else work, res["final_text"], run_dir))
     (run_dir / "result.json").write_text(json.dumps(res, indent=2, ensure_ascii=False), encoding="utf-8")
     return res
 

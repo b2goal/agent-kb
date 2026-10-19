@@ -3,6 +3,7 @@
 Run: python -m shopdemo.web.server --port 8800   (database: SHOPDEMO_DB, default ./shopdemo.db)
 """
 import argparse
+import hashlib
 import html
 import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -33,6 +34,18 @@ function openRefund(){var b=document.getElementById('refund-backdrop');b.style.d
  setTimeout(function(){document.getElementById('refund-modal').classList.add('open')},600);}
 function reasonChanged(s){document.getElementById('refund-submit').disabled=!s.value;}
 """
+
+
+def order_token(order_id):
+    """Order pages use an opaque key in the URL, not the order number."""
+    return hashlib.sha1(f"so-{order_id}".encode()).hexdigest()[:10]
+
+
+def order_id_for_token(conn, token):
+    for (oid,) in conn.execute("SELECT id FROM orders"):
+        if order_token(oid) == token:
+            return oid
+    return None
 
 
 def esc(v):
@@ -116,19 +129,22 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/dashboard":
             return self.dashboard(user)
         if parts == ["orders"]:
-            return self.orders(user, int(qs.get("page", 1)))
-        if len(parts) == 2 and parts[0] == "orders" and parts[1].isdigit():
-            return self.order_detail(user, int(parts[1]), qs)
+            return self.orders(user, int(qs.get("page", 1)), qs.get("q", ""))
+        if len(parts) == 3 and parts[:2] == ["orders", "o"]:
+            oid = order_id_for_token(self.conn(), parts[2])
+            if oid is None:
+                return self.send_html(page("Không tìm thấy", "<p>Đơn hàng không tồn tại.</p>", user), 404)
+            return self.order_detail(user, oid, qs)
         if parts == ["customers"]:
             return self.customers(user)
         if parts == ["reports"]:
             return self.reports(user)
         if parts == ["settings"]:
             return self.settings_menu(user)
-        if parts == ["settings", "inventory"]:
+        if parts == ["settings", "ops", "inventory"]:
+            if qs.get("tab") == "alerts":
+                return self.settings_alerts(user, qs)
             return self.settings_inventory(user)
-        if parts == ["settings", "inventory", "alerts"]:
-            return self.settings_alerts(user, qs)
         return self.send_html(page("Không tìm thấy", "<p>Trang không tồn tại.</p>", user), 404)
 
     def _post(self):
@@ -139,9 +155,12 @@ class Handler(BaseHTTPRequestHandler):
         user = self.user()
         if not user:
             return self.redirect("/login")
-        if len(parts) == 3 and parts[0] == "orders" and parts[2] == "refund":
-            return self.refund_submit(user, int(parts[1]))
-        if parts == ["settings", "inventory", "alerts"]:
+        if len(parts) == 4 and parts[:2] == ["orders", "o"] and parts[3] == "refund":
+            oid = order_id_for_token(self.conn(), parts[2])
+            if oid is None:
+                return self.send_html(page("Không tìm thấy", "", user), 404)
+            return self.refund_submit(user, oid)
+        if parts == ["settings", "ops", "inventory", "alerts"]:
             return self.settings_alerts_submit(user)
         return self.send_html(page("Không tìm thấy", "", user), 404)
 
@@ -173,15 +192,20 @@ class Handler(BaseHTTPRequestHandler):
                 f"(ngưỡng {alerts.get_threshold(conn)})</p>")
         return self.send_html(page("Tổng quan", body, user))
 
-    def orders(self, user, page_no):
+    def orders(self, user, page_no, q=""):
         conn = self.conn()
         rows, total = service.list_orders(conn, page_no)
-        trs = "".join(f"<tr><td><a href='/orders/{r['id']}'>#{r['id']}</a></td><td>{esc(r['customer'])}</td>"
+        if q:
+            num = "".join(c for c in q if c.isdigit())
+            rows = [service.get_order(conn, int(num))] if num and service.get_order(conn, int(num)) else []
+            total = len(rows)
+        trs = "".join(f"<tr><td><a href='/orders/o/{order_token(r['id'])}'>SO-{r['id']}</a></td><td>{esc(r['customer'])}</td>"
                       f"<td>{esc(r['status'])}</td><td>{money.format_display(service.order_total(conn, r), service.order_currency(r))}</td></tr>"
                       for r in rows)
         pages = (total + 19) // 20
         links = " ".join(f"<a href='/orders?page={i}'>{i}</a>" for i in range(1, pages + 1))
-        body = f"<table><tr><th>Mã</th><th>Khách</th><th>Trạng thái</th><th>Tổng</th></tr>{trs}</table><p>Trang: {links}</p>"
+        search = "<form method='get' action='/orders'><input name='q' placeholder='Mã đơn, ví dụ SO-1001'> <button>Tìm</button></form>"
+        body = search + f"<table><tr><th>Mã</th><th>Khách</th><th>Trạng thái</th><th>Tổng</th></tr>{trs}</table><p>Trang: {links}</p>"
         return self.send_html(page("Đơn hàng", body, user))
 
     def order_detail(self, user, order_id, qs):
@@ -201,18 +225,18 @@ class Handler(BaseHTTPRequestHandler):
         options = "".join(f"<option>{esc(r)}</option>" for r in REFUND_REASONS)
         toast = "<div class='toast' id='toast'>Đã hoàn tiền</div>" if qs.get("ok") else ""
         err = f"<p style='color:#c33' id='refund-error'>{esc(qs['error'])}</p>" if qs.get("error") else ""
-        body = (f"<h2>Đơn hàng #{order_id}</h2><p>Khách: {esc(order['customer'])} · Trạng thái: {esc(order['status'])}</p>"
+        body = (f"<h2>Đơn hàng SO-{order_id}</h2><p>Khách: {esc(order['customer'])} · Trạng thái: {esc(order['status'])}</p>"
                 f"<table><tr><th>SKU</th><th>SL</th><th>Đơn giá</th></tr>{trs}</table>"
                 f"<p>Tạm tính: {money.format_display(subtotal, cur)} · Giảm {order['discount_pct']}% · "
                 f"Tổng: <b>{money.format_display(after, cur)}</b></p>{err}"
                 f"<h3>Hoàn tiền</h3><ul>{rtrs}</ul><button onclick='openRefund()'>Hoàn tiền</button>"
                 f"<div class='modal-backdrop' id='refund-backdrop'><div class='modal' id='refund-modal'>"
-                f"<form method='post' action='/orders/{order_id}/refund'><h3>Hoàn tiền đơn #{order_id}</h3>"
+                f"<form method='post' action='/orders/o/{order_token(order_id)}/refund'><h3>Hoàn tiền đơn SO-{order_id}</h3>"
                 f"<p><label>Số tiền ({cur}) <input name='amount' id='refund-amount'></label></p>"
                 f"<p><label>Lý do <select name='reason' id='refund-reason' onchange='reasonChanged(this)'>"
                 f"<option value=''>-- chọn --</option>{options}</select></label></p>"
                 f"<button type='submit' id='refund-submit' disabled>Gửi yêu cầu</button></form></div></div>{toast}")
-        return self.send_html(page(f"Đơn hàng #{order_id}", body, user, f"<script>{MODAL_JS}</script>"))
+        return self.send_html(page(f"Đơn hàng SO-{order_id}", body, user, f"<script>{MODAL_JS}</script>"))
 
     def refund_submit(self, user, order_id):
         conn = self.conn()
@@ -224,8 +248,8 @@ class Handler(BaseHTTPRequestHandler):
             amount = money.parse_amount(f.get("amount", ""), service.order_currency(order))
             adjustments.create_refund(conn, order_id, amount, f.get("reason", ""))
         except (ValueError, adjustments.RefundError) as exc:
-            return self.redirect(f"/orders/{order_id}?error={esc(str(exc))}")
-        return self.redirect(f"/orders/{order_id}?ok=1")
+            return self.redirect(f"/orders/o/{order_token(order_id)}?error={esc(str(exc))}")
+        return self.redirect(f"/orders/o/{order_token(order_id)}?ok=1")
 
     def customers(self, user):
         conn = self.conn()
@@ -240,12 +264,17 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_html(page("Báo cáo doanh thu ngày", f"<table>{trs}</table>", user))
 
     def settings_menu(self, user):
-        body = "<ul><li><a href='/settings/general'>Chung</a></li><li><a href='/settings/inventory'>Kho hàng</a></li></ul>"
+        body = ("<details><summary>Chung</summary><ul><li><a href='/settings/store'>Cửa hàng</a></li>"
+                "<li><a href='/settings/users'>Người dùng</a></li></ul></details>"
+                "<details><summary>Bán hàng</summary><ul><li><a href='/settings/sales/payments'>Thanh toán</a></li>"
+                "<li><a href='/settings/sales/shipping'>Vận chuyển</a></li></ul></details>"
+                "<details><summary>Vận hành</summary><ul><li><a href='/settings/ops/inventory'>Kho hàng</a></li>"
+                "<li><a href='/settings/ops/returns'>Đổi trả</a></li></ul></details>")
         return self.send_html(page("Cài đặt", body, user))
 
     def settings_inventory(self, user):
-        body = ("<ul><li><a href='/settings/inventory/units'>Đơn vị tính</a></li>"
-                "<li><a href='/settings/inventory/alerts'>Cảnh báo tồn kho</a></li></ul>")
+        body = ("<p><a href='/settings/ops/inventory?tab=units'>Đơn vị tính</a> | <a href='/settings/ops/inventory?tab=warehouses'>Kho</a>"
+                " | <a href='/settings/ops/inventory?tab=alerts'>Cảnh báo</a></p><p>Chọn một tab.</p>")
         return self.send_html(page("Cài đặt kho hàng", body, user))
 
     def settings_alerts(self, user, qs):
@@ -254,7 +283,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_html(page("Không có quyền", body, user), 403)
         conn = self.conn()
         saved = "<p class='toast'>Đã lưu</p>" if qs.get("saved") else ""
-        body = (f"{saved}<form method='post' action='/settings/inventory/alerts'>"
+        body = (f"{saved}<form method='post' action='/settings/ops/inventory/alerts'>"
                 f"<p><label>Ngưỡng tồn kho thấp <input name='threshold' value='{alerts.get_threshold(conn)}'></label></p>"
                 "<button type='submit'>Lưu</button></form>")
         return self.send_html(page("Cảnh báo tồn kho", body, user))
@@ -264,7 +293,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_html(page("Không có quyền", "", user), 403)
         f = self.form()
         alerts.set_threshold(self.conn(), f.get("threshold", "0"))
-        return self.redirect("/settings/inventory/alerts?saved=1")
+        return self.redirect("/settings/ops/inventory?tab=alerts&saved=1")
 
 
 def main():

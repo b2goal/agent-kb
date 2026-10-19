@@ -30,7 +30,7 @@ def metrics(run_dir: Path) -> dict:
     observe = [e for e in browser if any(k in e["tool"] for k in OBSERVE)]
     failed_acts = [e for e in browser if e not in observe and e["outcome"] == "error"]
     violations = [e for e in events if e["category"] in ("shell", "read") and
-                  any(k in str(e.get("cmd_prefix") or e.get("file") or "") for k in ("sqlite", "shopdemo.db"))]
+                  any(k in str(e.get("cmd_prefix") or e.get("file") or "") for k in ("sqlite", "shopdemo.db", "shopdemo-app"))]
     if (BENCH / "tasks").exists() and res["task"].startswith("B"):
         violations += [e for e in events if e["category"] == "edit"]
     row.update(api_calls_main=s["api_calls"] - s["api_calls_sub"], tool_calls=s["tool_calls"],
