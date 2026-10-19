@@ -1,0 +1,14 @@
+{
+  "C1": {"type": "code", "setup": "setup_c1.py",
+         "prompt": "Người dùng báo nút Hoàn tiền bị lỗi 500 ở một số đơn, ví dụ đơn #1002. Hãy tìm nguyên nhân, sửa và thêm test."},
+  "C2": {"type": "code", "setup": null,
+         "prompt": "Thêm chức năng xuất CSV danh sách đơn hàng: hàm export_orders_csv(conn) trong module shopdemo/orders/export.py trả về chuỗi CSV, và trang /orders/export.csv để tải về. Cột: order_id, sku, quantity, total, currency, created_at. Mỗi dòng hàng là một dòng CSV, sắp xếp theo order_id rồi sku. total là thành tiền của dòng (quantity × đơn giá)."},
+  "C3": {"type": "code", "setup": "setup_c3.py",
+         "prompt": "Test báo cáo ngày (tests/test_reports.py) fail trên máy Windows của tôi. Sửa giúp."},
+  "C4": {"type": "code", "setup": null,
+         "prompt": "Chuyển phần tính giảm giá sang module mới shopdemo/pricing/discounts.py, hàm public apply_discount(subtotal_minor, discount_pct). Giữ nguyên hành vi, cập nhật mọi chỗ đang dùng, không để lại hàm cũ."},
+  "B1": {"type": "browser", "setup": null,
+         "prompt": "App shopdemo đang chạy ở http://127.0.0.1:8800. Dùng trình duyệt, hoàn tiền một phần 10.000 đ cho đơn #1001 với lý do 'Khách đổi ý', rồi xác nhận trên trang là đã hoàn tiền thành công. Tài khoản test có trong repo. Không sửa code và không đọc/ghi database trực tiếp."},
+  "B2": {"type": "browser", "setup": null,
+         "prompt": "App shopdemo đang chạy ở http://127.0.0.1:8800. Dùng trình duyệt, đặt ngưỡng cảnh báo tồn kho thấp = 5, rồi cho biết badge 'Sắp hết hàng' trên trang tổng quan đang hiển thị số mấy. Tài khoản test có trong repo. Không sửa code và không đọc/ghi database trực tiếp."}
+}

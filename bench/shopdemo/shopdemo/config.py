@@ -1,0 +1,6 @@
+import os
+
+DEFAULT_CURRENCY = "VND"
+DB_PATH = os.environ.get("SHOPDEMO_DB", "shopdemo.db")
+ORDERS_PER_PAGE = 20
+DEFAULT_LOW_STOCK_THRESHOLD = 10
