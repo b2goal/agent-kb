@@ -186,10 +186,10 @@ def export_claude_md(store: LocalStore, project: str) -> str:
     items.sort(key=lambda i: (i.kind, i.subject_key))
     lines = [MARK_START, "# Project notes (agent-kb)"]
     lines += [f"- {i.body.strip()}" for i in items if i.body.strip()]
-    lines.append("- Project memory: as your FIRST action, run only `kb context \"<key words copied from the request, in "
-                 "its language>\"` (no other tool in that response), read the answer, then plan. It lists files, tests, "
-                 "errors, app pages and the accounts that reached them, from related past sessions (unverified; check "
-                 "them). `kb search \"<topic>\"` finds recorded conventions.")
+    lines.append("- Project memory: when you start a task, run `kb context \"<key words copied from the request, in "
+                 "its language>\"` in the same response as your first reads. It lists files, tests, errors, app pages and "
+                 "the accounts that reached them, from related past sessions (unverified; check them). "
+                 "`kb search \"<topic>\"` finds recorded conventions.")
     if store.find_meta(project=project, kind="page", status="active"):
         lines.append("- Before browser work: `kb browser path \"<target page>\" --from <current url>` gives a known "
                      "route; `kb browser page \"<page>\"` shows what is known about a page. Explore only when unknown.")
