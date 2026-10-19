@@ -29,7 +29,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "fixed_context_growth": 0.20,
         "browser_output_share": 0.40,
     },
-    "telemetry": {"raw_retention_days": 60},
+    # exclude_dirs: glob patterns on Claude Code's transcript folder names (~/.claude/projects/<name>) never ingested,
+    # e.g. "D--projects-agent-kb-bench-work-*" for benchmark runs
+    "telemetry": {"raw_retention_days": 60, "exclude_dirs": []},
     "harnesses": ["claude"],
 }
 

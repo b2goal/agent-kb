@@ -193,3 +193,17 @@ class DoctorTest(Env):
         from agent_kb import paths
         (paths.ensure_home() / "config.json").write_text('{"query": {', encoding="utf-8")
         self.assertIn("config.json", paths.config_error())
+
+
+class ExcludeDirsTest(Env):
+    def test_excluded_transcript_folders_are_not_ingested(self):
+        import json
+        from agent_kb import paths
+        from agent_kb.adapters import claude_code
+        from tests.test_core import _transcript
+        r = self.repo()
+        _transcript(self.root / "claude" / "projects" / "bench-work-C1" / "sess-1.jsonl", str(r))
+        self.assertEqual(len(claude_code.pending()), 1)
+        (paths.ensure_home() / "config.json").write_text(json.dumps({"telemetry": {"exclude_dirs": ["bench-work-*"]}}),
+                                                         encoding="utf-8")
+        self.assertEqual(claude_code.pending(), [])

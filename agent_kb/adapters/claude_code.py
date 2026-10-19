@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import shutil
@@ -137,6 +138,9 @@ def ingest_file(path: Path, tele: Optional[Telemetry] = None, force: bool = Fals
 def discover(recent: Optional[int] = None, project_dir: Optional[str] = None) -> List[Path]:
     root = claude_dir() / "projects"
     files = [f for f in root.glob("*/*.jsonl")] if root.is_dir() else []
+    from ..paths import load_config
+    skip = load_config()["telemetry"].get("exclude_dirs") or []
+    files = [f for f in files if not any(fnmatch.fnmatch(f.parent.name, pat) for pat in skip)]
     if project_dir:
         want = project_id(project_dir)
         files = [f for f in files if _transcript_project(f) == want]
