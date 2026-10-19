@@ -48,7 +48,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--other", default="c", choices=["b", "c"])
     args = ap.parse_args()
-    rows = [metrics(d) for d in sorted((BENCH / "runs").glob("[BC][0-9]-*")) if (d / "result.json").exists()]
+    rows = [metrics(d) for d in sorted((BENCH / "runs").glob("[BC][0-9]-*"))
+            if (d / "result.json").exists() and not d.name.endswith("-0")]      # rep 0 = dry runs
     (BENCH / "runs" / "metrics.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
     tasks = sorted({r["task"] for r in rows})
     print(f"{'task':5} {'arm':3} {'n':>2} {'ok':>4} {'turns':>6} {'calls':>6} {'explore':>8} {'ctx_k':>7} {'cost$':>7}")
