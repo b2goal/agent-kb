@@ -33,6 +33,11 @@ variants A–K, `run_bench.py`, `analyze.py`.
 
 ## 3. Design (full doc: Claude Docs "Thiết kế chi tiết: agent-kb")
 
+Data model v3 (2026-10-21, agreed, not implemented): `docs/design/data-model-v3.md` — source contract,
+typed fields (`key`/`text`/`time`/`ref`), shared index registry, one graph for all kinds, `link` records
+with polarity, `rejected` status, evidence + conditions + `kb why`, site profiles for the page map.
+Where it disagrees with the points below, v3 wins.
+
 - **Principle:** knowledge belongs to the user, harnesses are thin adapters. Split by layer:
   collectors per harness → one write gate → local store → rebuildable indexes → one query API → clients.
 - **Store** `~/.agent-kb/` (env `AGENT_KB_HOME`): knowledge = Markdown files (source of truth, history);

@@ -63,8 +63,9 @@ Updated: 2026-10-19 (session 2, stage 1 done on branch p1/stability). 31 unit te
 ## Next (in order)
 
 1. (Installed 2026-10-18.) Run one week, check `kb doctor` + `kb stats` match Claude Code's own numbers.
-2. Browser on real data: check URL patterns and observe/act classification against the user's actual
-   browser tools; add page state (modal / role / login) to page keys only if SPAs need it.
+2. Browser on real data — done 2026-10-21 on SmartLender CLOS: URL-only page keys merge screens and
+   `kb browser path` suggests forbidden direct URLs. Resolved in design: `docs/design/data-model-v3.md`
+   (site profiles, screen keys, one graph index). Code gaps listed in its § 11.
 3. Adapter Codex — BLOCKED on a real sample: public write-ups disagree (tool calls under response_item vs
    event_msg; newer rollouts may be .jsonl.zst). Need one file from ~/.codex/sessions on the user's machine,
    then write adapters/codex.py + `kb export agents-md`.
